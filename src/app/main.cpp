@@ -37,115 +37,51 @@ static bool handleAutoClear(int argc, char* argv[])
 {
     if (argc < 2) return false;
 
-#if defined(Q_OS_LINUX)
-    // Headless write mode: called via pkexec to write message as root
-    // Arguments: --write-message --title <title> --body <body>
-    if (strcmp(argv[1], "--write-message") == 0) {
+#if defined(Q_OS_MACOS)
+    // --execute-shutdown: fired by the LaunchAgent timer at the scheduled time.
+    // Performs the actual shutdown/restart — graceful via System Events (no root),
+    // or force via osascript elevation.
+    // Arguments: --execute-shutdown --action shutdown|restart --force 0|1
+    if (strcmp(argv[1], "--execute-shutdown") == 0) {
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
-        QString title, body, dm;
-        for (int i = 2; i < argc; i++) {
-            if (strcmp(argv[i], "--title") == 0)      title = QString::fromUtf8(argv[++i]);
-            else if (strcmp(argv[i], "--body") == 0)  body  = QString::fromUtf8(argv[++i]);
-            else if (strcmp(argv[i], "--dm") == 0)    dm    = QString::fromUtf8(argv[++i]);
-        }
-        // Write /etc/issue
-        const char* beginMarker = "# --- ShutdownTimer message begin ---";
-        const char* endMarker   = "# --- ShutdownTimer message end ---";
-        QFile file("/etc/issue");
-        QString existing;
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QString c = QString::fromUtf8(file.readAll());
-            file.close();
-            int b = c.indexOf(beginMarker), e = c.indexOf(endMarker);
-            if (b != -1 && e != -1)
-                c.remove(b, (e - b) + static_cast<int>(strlen(endMarker)) + 1);
-            existing = c.trimmed();
-        }
-        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            QTextStream out(&file);
-            if (!existing.isEmpty()) out << existing << "\n\n";
-            out << beginMarker << "\n";
-            if (!title.isEmpty()) out << title << "\n";
-            if (!body.isEmpty())  out << body  << "\n";
-            out << endMarker << "\n";
-        }
-        // Write DM-specific config
-        if (dm == QLatin1String("sddm")) {
-            QDir().mkpath("/etc/sddm.conf.d");
-            QFile sddmFile("/etc/sddm.conf.d/shutdown-timer-msg.conf");
-            if (sddmFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                QTextStream out(&sddmFile);
-                QString combined = title.isEmpty() ? body
-                    : (body.isEmpty() ? title : title + " - " + body);
-                out << "[General]\nWelcomeMessage=" << combined << "\n";
-            }
-        } else if (dm == QLatin1String("lightdm")) {
-            QDir().mkpath("/etc/lightdm/lightdm.conf.d");
-            QFile ldmFile("/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf");
-            if (ldmFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                QTextStream out(&ldmFile);
-                QString combined = title.isEmpty() ? body
-                    : (body.isEmpty() ? title : title + "\n" + body);
-                out << "[greeter]\nbanner-message-enable=true\nbanner-message-text="
-                    << combined << "\n";
-            }
-        } else if (dm == QLatin1String("gdm")) {
-            QDir().mkpath("/etc/dconf/profile");
-            QDir().mkpath("/etc/dconf/db/gdm.d");
-            // Ensure profile has system-db:gdm
-            QFile pf("/etc/dconf/profile/gdm");
-            QString pfContent;
-            if (pf.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                pfContent = QString::fromUtf8(pf.readAll()); pf.close();
-            }
-            if (!pfContent.contains("system-db:gdm")) {
-                if (pf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                    QTextStream out(&pf);
-                    if (!pfContent.trimmed().isEmpty()) out << pfContent.trimmed() << "\n";
-                    out << "system-db:gdm\n";
-                }
-            }
-            // Write banner key file
-            QFile bf("/etc/dconf/db/gdm.d/01-banner-message");
-            if (bf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                QTextStream out(&bf);
-                QString combined = title.isEmpty() ? body
-                    : (body.isEmpty() ? title : title + "\n" + body);
-                combined.replace("'", "\\'");
-                out << "[org/gnome/login-screen]\n"
-                    << "banner-message-enable=true\n"
-                    << "banner-message-text='" << combined << "'\n";
-            }
-            QProcess::execute("dconf", QStringList{"update"});
-        }
-        return true;
-    }
 
-    // Headless clear mode: called via pkexec to clear message as root
-    if (strcmp(argv[1], "--clear-message") == 0) {
-        int argcCopy = argc;
-        QCoreApplication coreApp(argcCopy, argv);
-        const char* beginMarker = "# --- ShutdownTimer message begin ---";
-        const char* endMarker   = "# --- ShutdownTimer message end ---";
-        QFile file("/etc/issue");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QString cnt = QString::fromUtf8(file.readAll());
-            file.close();
-            int b = cnt.indexOf(beginMarker), e = cnt.indexOf(endMarker);
-            if (b != -1 && e != -1)
-                cnt.remove(b, (e - b) + static_cast<int>(strlen(endMarker)) + 1);
-            if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                QTextStream out(&file);
-                out << cnt.trimmed();
-            }
+        QString action, forceStr;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "--action") == 0 && i + 1 < argc)
+                action = QString::fromUtf8(argv[++i]);
+            else if (strcmp(argv[i], "--force") == 0 && i + 1 < argc)
+                forceStr = QString::fromUtf8(argv[++i]);
         }
-        // Remove DM configs regardless of which DM is active
-        QFile::remove("/etc/sddm.conf.d/shutdown-timer-msg.conf");
-        QFile::remove("/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf");
-        // GDM: remove banner key file and update dconf
-        QFile::remove("/etc/dconf/db/gdm.d/01-banner-message");
-        QProcess::execute("dconf", QStringList{"update"});
+
+        bool isShutdown = (action == QLatin1String("shutdown"));
+        bool force      = (forceStr == QLatin1String("1"));
+
+        // Remove the timer LaunchAgent plist so it doesn't fire again daily.
+        // Do this BEFORE the shutdown so cleanup always happens.
+        QString home      = QDir::homePath();
+        QString plistPath = home +
+            "/Library/LaunchAgents/com.fakylab.shutdowntimer.timer.plist";
+        QString uid = QString::number(getuid());
+        QProcess::execute("launchctl",
+            QStringList{"bootout", QString("gui/%1").arg(uid), plistPath});
+        QFile::remove(plistPath);
+
+        if (force) {
+            // Force mode: skip save dialogs — requires root via osascript
+            QString cmd = isShutdown ? "shutdown -h now" : "shutdown -r now";
+            QProcess::execute("osascript",
+                QStringList{"-e",
+                    QString("do shell script \"%1\" with administrator privileges")
+                    .arg(cmd)});
+        } else {
+            // Graceful: System Events — no root, triggers normal save dialogs,
+            // same as user choosing Shut Down/Restart from the Apple menu.
+            QString event = isShutdown ? "shut down" : "restart";
+            QProcess::execute("osascript",
+                QStringList{"-e",
+                    QString("tell application \"System Events\" to %1").arg(event)});
+        }
         return true;
     }
 #endif
@@ -205,7 +141,13 @@ static bool handleAutoClear(int argc, char* argv[])
         // Use pkexec to invoke --clear-message as root, which handles
         // all privileged file operations. The password prompt appears
         // once at login when the auto-clear fires.
-        QString exePath = QCoreApplication::applicationFilePath();
+        //
+        // When running from an AppImage, applicationFilePath() points inside
+        // the squashfs mount which is noexec — pkexec can't execute from it.
+        // Use $APPIMAGE (the actual .AppImage file) when available.
+        QString exePath = qEnvironmentVariable("APPIMAGE");
+        if (exePath.isEmpty())
+            exePath = QCoreApplication::applicationFilePath();
         QProcess::execute("pkexec", QStringList{exePath, "--clear-message"});
 
         // The systemd unit file lives in the user's own config directory —

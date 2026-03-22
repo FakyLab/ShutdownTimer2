@@ -1,4 +1,5 @@
 #include "TimerController.h"
+#include <QDateTime>
 
 TimerController::TimerController(TimerModel*       model,
                                  IShutdownBackend* shutdown,
@@ -36,11 +37,28 @@ void TimerController::onStartCountdown(int totalSeconds,
     m_model->setMode(TimerMode::Countdown);
     m_model->setRunning(true);
 
-    m_engine->startCountdown(totalSeconds);
+    // On backends that can register with the OS ahead of time (macOS LaunchAgent),
+    // schedule now so the timer survives app closure. The engine still counts down
+    // for the UI — when it fires at T=0 it calls scheduleShutdown(0) again, which
+    // on macOS hits the immediate path (LaunchAgent has already self-destructed).
+    // Sleep/Hibernate return canScheduleAhead()=true but are immediate actions —
+    // the LaunchAgent path ignores seconds=0 and only applies for seconds > 0.
+    if (m_shutdown->canScheduleAhead() && totalSeconds > 0) {
+        bool ok = m_shutdown->scheduleShutdown(action, totalSeconds, force);
+        if (!ok) {
+            m_model->setRunning(false);
+            emit errorOccurred(m_shutdown->lastError());
+            emit runningStateChanged(false);
+            return;
+        }
+        emit statusMessage(tr("Timer registered with system. App can be closed."));
+    } else {
+        emit statusMessage(tr("Timer started."));
+    }
 
+    m_engine->startCountdown(totalSeconds);
     emit timerStarted();
     emit runningStateChanged(true);
-    emit statusMessage(tr("Timer started."));
 }
 
 void TimerController::onStartScheduled(const QDateTime& target,
@@ -53,11 +71,25 @@ void TimerController::onStartScheduled(const QDateTime& target,
     m_model->setTargetTime(target);
     m_model->setRunning(true);
 
-    m_engine->startScheduled(target);
+    int secondsUntil = static_cast<int>(QDateTime::currentDateTime().secsTo(target));
 
+    if (m_shutdown->canScheduleAhead() && secondsUntil > 0) {
+        bool ok = m_shutdown->scheduleShutdown(action, secondsUntil, force);
+        if (!ok) {
+            m_model->setRunning(false);
+            emit errorOccurred(m_shutdown->lastError());
+            emit runningStateChanged(false);
+            return;
+        }
+        emit statusMessage(tr("Timer registered with system. App can be closed."));
+    } else {
+        emit statusMessage(tr("Timer started."));
+    }
+
+    m_engine->startScheduled(target);
     emit timerStarted();
+    emit runningStateChanged(false);
     emit runningStateChanged(true);
-    emit statusMessage(tr("Timer started."));
 }
 
 void TimerController::onCancel()
@@ -83,9 +115,11 @@ void TimerController::onEngineTriggered()
     ShutdownAction action = m_model->action();
     bool force            = m_model->forceEnabled();
 
-    // Always call with seconds=0 - TimerEngine fires us exactly at t=0,
-    // so the OS should execute immediately. The non-zero seconds path
-    // is not used and has been intentionally removed.
+    // Always call with seconds=0 — TimerEngine fires at T=0, execute immediately.
+    // On macOS (canScheduleAhead=true): a LaunchAgent was already registered at
+    // Start time, so if the app is still open this is belt-and-suspenders.
+    // cancelShutdown() on macOS removes the LaunchAgent before this fires,
+    // so both paths are consistent.
     bool ok = m_shutdown->scheduleShutdown(action, 0, force);
     m_model->setRunning(false);
 

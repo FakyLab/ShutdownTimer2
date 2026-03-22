@@ -361,6 +361,10 @@ Aktueller Pfad:
             <source>The scheduled time is in the past. Please choose a future time.</source>
             <translation type="unfinished" />
         </message>
+        <message>
+            <source>Timer registered with system. App can be closed.</source>
+            <translation type="unfinished" />
+        </message>
     </context>
     <context>
         <name>MessageController</name>

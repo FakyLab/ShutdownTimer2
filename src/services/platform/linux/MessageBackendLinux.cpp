@@ -404,14 +404,17 @@ bool MessageBackendLinux::runWithPkexec(const QStringList& args)
             QString combined = title.isEmpty() ? body
                 : (body.isEmpty() ? title : title + " \xe2\x80\x94 " + body);
             script << "mkdir -p /etc/sddm.conf.d";
-            script << QString("printf '[General]\\nWelcomeMessage=%1\\n' > "
+            // Use %s + separate arg so shq(combined) doesn't conflict with
+            // the single-quoted format string.
+            script << QString("printf '[General]\\nWelcomeMessage=%%s\\n' %1 > "
                               "/etc/sddm.conf.d/shutdown-timer-msg.conf").arg(shq(combined));
         } else if (dm == "lightdm") {
             QString combined = title.isEmpty() ? body
                 : (body.isEmpty() ? title : title + "\n" + body);
             script << "mkdir -p /etc/lightdm/lightdm.conf.d";
+            // Use %s + separate arg — same reason as SDDM above.
             script << QString("printf '[greeter]\\nbanner-message-enable=true\\n"
-                              "banner-message-text=%1\\n' > "
+                              "banner-message-text=%%s\\n' %1 > "
                               "/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf").arg(shq(combined));
         } else if (dm == "gdm") {
             QString combined = title.isEmpty() ? body
