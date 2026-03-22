@@ -42,6 +42,7 @@ jobs:
           copy LICENSE.txt deploy\
 
       - name: Build portable ZIP
+        shell: pwsh
         run: Compress-Archive -Path deploy\* -DestinationPath ShutdownTimer-${{ github.ref_name }}-Windows-x64-Portable.zip
 
       - name: Upload to release
@@ -98,13 +99,16 @@ jobs:
           mkdir -p AppDir/usr/share/shutdowntimer/i18n
           cp build/i18n/*.qm AppDir/usr/share/shutdowntimer/i18n/
           cp packaging/appimage/shutdowntimer.desktop AppDir/usr/share/applications/shutdowntimer.desktop
-          cp assets/shutdown16px.png  AppDir/usr/share/icons/hicolor/16x16/apps/shutdowntimer.png
-          cp assets/shutdown24px.png  AppDir/usr/share/icons/hicolor/24x24/apps/shutdowntimer.png
-          cp assets/shutdown32px.png  AppDir/usr/share/icons/hicolor/32x32/apps/shutdowntimer.png
-          cp assets/shutdown48px.png  AppDir/usr/share/icons/hicolor/48x48/apps/shutdowntimer.png
-          cp assets/shutdown64px.png  AppDir/usr/share/icons/hicolor/64x64/apps/shutdowntimer.png
-          cp assets/shutdown128px.png AppDir/usr/share/icons/hicolor/128x128/apps/shutdowntimer.png
-          cp assets/shutdown256px.png AppDir/usr/share/icons/hicolor/256x256/apps/shutdowntimer.png
+          # Icons named to match desktop file Icon=org.fakylab.ShutdownTimer
+          cp assets/shutdown16px.png  AppDir/usr/share/icons/hicolor/16x16/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown24px.png  AppDir/usr/share/icons/hicolor/24x24/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown32px.png  AppDir/usr/share/icons/hicolor/32x32/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown48px.png  AppDir/usr/share/icons/hicolor/48x48/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown64px.png  AppDir/usr/share/icons/hicolor/64x64/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown128px.png AppDir/usr/share/icons/hicolor/128x128/apps/org.fakylab.ShutdownTimer.png
+          cp assets/shutdown256px.png AppDir/usr/share/icons/hicolor/256x256/apps/org.fakylab.ShutdownTimer.png
+          # Root-level icon required by linuxdeployqt
+          cp assets/shutdown256px.png AppDir/org.fakylab.ShutdownTimer.png
           mkdir -p AppDir/usr/share/doc/shutdowntimer
           cp LICENSE.txt AppDir/usr/share/doc/shutdowntimer/copyright
           cp packaging/appimage/AppRun AppDir/AppRun
@@ -245,7 +249,7 @@ jobs:
           mkdir -p "$APP/Contents/Resources/i18n"
           # POST_BUILD copies .qm files next to the binary (MacOS/i18n)
           # We also need them in Resources/i18n for LanguageManager
-          find build -name "*.qm" | xargs -I{} cp {} "$APP/Contents/Resources/i18n/"
+          find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
 
       - name: Generate .icns from PNG assets
         run: |
