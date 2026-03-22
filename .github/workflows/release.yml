@@ -73,7 +73,7 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
             libxcb-xkb1 libxkbcommon-x11-0 \
-            fuse libfuse2 file
+            fuse libfuse2 patchelf file
 
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -81,18 +81,20 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      - name: Download linuxdeployqt
+      - name: Download linuxdeploy and Qt plugin
         run: |
-          wget -q https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage
-          chmod +x linuxdeployqt-continuous-x86_64.AppImage
-          ./linuxdeployqt-continuous-x86_64.AppImage --appimage-extract
-          echo "$PWD/squashfs-root/usr/bin" >> $GITHUB_PATH
+          # linuxdeploy + linuxdeploy-plugin-qt are the actively maintained
+          # successors to the abandoned linuxdeployqt. They support Qt6.
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-plugin-qt-x86_64.AppImage
 
       - name: Prepare AppDir
         run: |
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
-          for size in 16 24 32 48 64 128 256; do
+          for size in 16 24 32 48 64 128 256 512; do
             mkdir -p AppDir/usr/share/icons/hicolor/${size}x${size}/apps
           done
           cp build/ShutdownTimer AppDir/usr/bin/ShutdownTimer
@@ -107,12 +109,9 @@ jobs:
           cp assets/shutdown64px.png  AppDir/usr/share/icons/hicolor/64x64/apps/org.fakylab.ShutdownTimer.png
           cp assets/shutdown128px.png AppDir/usr/share/icons/hicolor/128x128/apps/org.fakylab.ShutdownTimer.png
           cp assets/shutdown256px.png AppDir/usr/share/icons/hicolor/256x256/apps/org.fakylab.ShutdownTimer.png
-          mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps
           cp assets/shutdown512px.png AppDir/usr/share/icons/hicolor/512x512/apps/org.fakylab.ShutdownTimer.png
-          # Root-level icon required by linuxdeployqt (must match Icon= in .desktop)
+          # Root-level icon and .DirIcon required by linuxdeploy
           cp assets/shutdown512px.png AppDir/org.fakylab.ShutdownTimer.png
-          # .DirIcon is the icon embedded in the AppImage squashfs for file managers
-          # and application launchers to display without mounting the AppImage.
           cp assets/shutdown512px.png AppDir/.DirIcon
           mkdir -p AppDir/usr/share/doc/shutdowntimer
           cp LICENSE.txt AppDir/usr/share/doc/shutdowntimer/copyright
@@ -120,16 +119,27 @@ jobs:
           chmod +x AppDir/AppRun
 
       - name: Build AppImage
+        env:
+          # Tell linuxdeploy-plugin-qt which qmake to use for Qt6
+          QMAKE: /usr/bin/qmake6
+          # Needed for linuxdeploy to find Qt plugins
+          QT_QPA_PLATFORM: offscreen
+          # Output verbosity — shows all deployed files and errors clearly
+          LINUXDEPLOY_OUTPUT_VERBOSITY: 2
         run: |
-          linuxdeployqt \
-            AppDir/usr/share/applications/shutdowntimer.desktop \
-            -qmake=$(which qmake6 || which qmake) \
-            -appimage \
-            -no-translations \
-            -extra-plugins=platforms/libqxcb.so,iconengines,imageformats
-          # linuxdeployqt names the file from the desktop Name= field — find and rename
-          APPIMAGE=$(find . -maxdepth 1 -name "*.AppImage" | head -1)
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage \
+            --verbosity=2
+          # linuxdeploy names the output from the desktop Name= field — find and rename
+          APPIMAGE=$(find . -maxdepth 1 -name "*.AppImage" ! -name "linuxdeploy*" | head -1)
           echo "Found AppImage: $APPIMAGE"
+          if [ -z "$APPIMAGE" ]; then
+            echo "ERROR: AppImage not produced. Contents of current dir:"
+            ls -la
+            exit 1
+          fi
           mv "$APPIMAGE" ShutdownTimer-${{ github.ref_name }}-Linux-x86_64.AppImage
 
       - name: Upload to release
