@@ -204,7 +204,7 @@ jobs:
   # ── macOS x86_64 (Intel) ───────────────────────────────────────────────────────
   release-macos-x64:
     name: macOS — DMG + ZIP (Intel x86_64)
-    runs-on: macos-13      # last Intel runner; macos-14+ are Apple Silicon only
+    runs-on: macos-15-intel      # Intel x86_64 runner (macos-13 retired Dec 2025)
 
     steps:
       - uses: actions/checkout@v4
