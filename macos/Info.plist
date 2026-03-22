@@ -26,9 +26,9 @@
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
 
-    <!-- Required on macOS 13+ for osascript / Apple Events -->
+    <!-- Required on macOS 13+ for osascript privilege elevation -->
     <key>NSAppleEventsUsageDescription</key>
-    <string>Shutdown Timer uses Apple Events to trigger sleep mode.</string>
+    <string>Shutdown Timer uses Apple Events to request administrator privileges for writing the login screen message.</string>
 
     <!-- Required for System Events access (sleep action) -->
     <key>NSAppleScriptEnabled</key>

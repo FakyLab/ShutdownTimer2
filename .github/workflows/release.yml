@@ -248,6 +248,18 @@ jobs:
           mkdir -p "$APP/Contents/Resources/i18n"
           find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
 
+      - name: Ad-hoc code sign
+        run: |
+          # Ad-hoc signing (-) requires no Developer account or certificate.
+          # It satisfies Gatekeeper's requirement that downloaded apps be signed,
+          # preventing "app is not supported" / "app is damaged" on macOS 15.1+.
+          # --deep signs all nested frameworks and dylibs bundled by macdeployqt.
+          # --force re-signs any components already signed by macdeployqt itself.
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          codesign --deep --force --sign - "$APP"
+          echo "Signed: $APP"
+          codesign --verify --verbose "$APP"
+
       - name: Generate .icns from PNG assets
         run: |
           mkdir -p icon.iconset
@@ -337,6 +349,18 @@ jobs:
           cp LICENSE.txt "$APP/Contents/Resources/"
           mkdir -p "$APP/Contents/Resources/i18n"
           find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
+
+      - name: Ad-hoc code sign
+        run: |
+          # Ad-hoc signing (-) requires no Developer account or certificate.
+          # It satisfies Gatekeeper's requirement that downloaded apps be signed,
+          # preventing "app is not supported" / "app is damaged" on macOS 15.1+.
+          # --deep signs all nested frameworks and dylibs bundled by macdeployqt.
+          # --force re-signs any components already signed by macdeployqt itself.
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          codesign --deep --force --sign - "$APP"
+          echo "Signed: $APP"
+          codesign --verify --verbose "$APP"
 
       - name: Generate .icns from PNG assets
         run: |
