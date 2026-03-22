@@ -427,21 +427,21 @@ Current path:
         </message>
     </context>
     <context>
-        <n>MessageBackendMacOS</n>
+        <name>MessageBackendMacOS</name>
         <message>
             <source>macOS desktop</source>
             <translation type="unfinished" />
         </message>
     </context>
     <context>
-        <n>MessageView</n>
+        <name>MessageView</name>
         <message>
             <source>When saved, this message will be shown as a desktop notification on the %1.</source>
             <translation type="unfinished" />
         </message>
     </context>
     <context>
-        <n>TimerView</n>
+        <name>TimerView</name>
         <message>
             <source>Hibernate is not available on this machine.
 Check that your system supports suspend-to-disk.</source>
