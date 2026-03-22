@@ -37,7 +37,7 @@ src/
     │   └── IAutoClearBackend.h         Pure virtual: schedule / cancel / exists
     ├── platform/
     │   ├── windows/                    Win32 + Registry + COM Task Scheduler
-    │   ├── linux/                      systemctl + /etc/issue + DM configs + D-Bus helper
+    │   ├── linux/                      systemctl + ~/.config/ message file + XDG autostart
     │   └── macos/                      pmset + defaults + PolicyBanner + LaunchAgent
     └── PlatformServiceFactory.*        Picks correct backends at runtime/compile time
 ```
@@ -89,13 +89,10 @@ PlatformServiceFactory::create()
 │   ├── AutoClearBackendLinux    (systemd user service)
 │   └── message backend — selected at runtime:
 │       ├── isHelperAvailable()?
-│       │   YES → MessageBackendLinuxDBus   (D-Bus → polkit helper, once per session)
-│       │   NO  → MessageBackendLinux       (direct write + pkexec shell script fallback)
-│       └── DM detected via systemctl is-active:
-│           SDDM / PLM → /etc/sddm.conf.d/
-│           LightDM    → /etc/lightdm/lightdm.conf.d/
-│           GDM        → /etc/dconf/db/gdm.d/ + dconf update
-│           fallback   → /etc/issue only
+│       └── MessageBackendLinux
+│               writes ~/.config/shutdowntimer/message.json
+│               writes ~/.config/autostart/shutdowntimer-notify.desktop
+│               (no root required — fully unprivileged)
 │
 └── macOS
     ├── ShutdownBackendMacOS     (pmset / shutdown)
@@ -105,28 +102,26 @@ PlatformServiceFactory::create()
 
 ---
 
-## Linux Privileged Helper
+## Linux Message System
 
-On `.deb` and AUR installs, a separate C++ binary (`shutdowntimer-helper`) is installed at `/usr/libexec/`. It runs as root via D-Bus system bus activation and is the only component that writes to `/etc/issue`, DM config files, and dconf. All methods are protected by a PolicyKit action defined in `linux/polkit/org.fakylab.shutdowntimer.policy`.
+The Linux message backend requires **no root access**. The message is stored as a user-owned JSON file and delivered via the standard XDG autostart + notify-send mechanism.
 
 ```
-GUI app (unprivileged)
-    │
-    │  D-Bus call: WriteMessage(title, body, dm)
-    ▼
-shutdowntimer-helper (root, system bus)
-    │
-    ├── checkAuthorization("org.fakylab.shutdowntimer.write-message")
-    │       └── polkit shows password dialog if needed
-    │           auth_admin_keep: remembered for the session
-    │
-    └── writes: /etc/issue
-                /etc/sddm.conf.d/   (SDDM/PLM)
-                /etc/lightdm/       (LightDM)
-                /etc/dconf/         (GDM) + dconf update
+On write():
+    ~/.config/shutdowntimer/message.json     ← stores title + body
+    ~/.config/autostart/shutdowntimer-notify.desktop  ← XDG autostart entry
+
+At next login (any freedesktop DE):
+    DE session manager fires: ShutdownTimer --show-notification
+    → reads message.json
+    → calls notify-send (shows desktop notification)
+    → deletes both files
+
+On clear() or --auto-clear:
+    deletes message.json + shutdowntimer-notify.desktop
 ```
 
-On AppImage installs where the helper is not present, `MessageBackendLinux` falls back to writing a temporary shell script to `/tmp` (random name, `chmod 700`) and running it via `pkexec /bin/sh`. This bypasses the AppImage FUSE/noexec mount restriction.
+This approach works on all major Linux desktop environments (GNOME, KDE, XFCE, Cinnamon, MATE, LXQt, Budgie) without requiring root, polkit, a D-Bus helper, or any system-level configuration.
 
 ---
 

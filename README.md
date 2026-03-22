@@ -23,7 +23,7 @@ A cross-platform desktop utility for scheduling system shutdowns, restarts, hibe
 - **System Tray** — The app minimizes to the system tray. Closing the window hides it rather than quitting. A tray menu lets you show/hide, cancel a running timer, or quit.
 - **9 Languages** — English, Arabic (with RTL layout), Korean, Spanish, French, German, Portuguese (Brazil), Chinese Simplified, and Japanese. Language preference is saved between sessions.
 - **Persistent Settings** — Window position, size, and language are all remembered across restarts.
-- **Cross-platform** — Windows 10/11, Linux (SDDM / LightDM / GDM / PLM), and macOS 12+.
+- **Cross-platform** — Windows 10/11, Linux (any freedesktop DE), and macOS 12+.
 
 ---
 
@@ -42,7 +42,7 @@ Pre-built packages are available on the [Releases](https://github.com/FakyLab/Sh
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full MVC structure, layer interaction diagrams, platform backend selection logic, and Linux privileged helper design.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full MVC structure, layer interaction diagrams, and platform backend selection logic.
 
 ---
 
@@ -66,17 +66,9 @@ The message is written to the platform-appropriate location using the platform's
 |----------|-----------|
 | Windows | `HKLM\...\Winlogon` `LegalNoticeCaption` / `LegalNoticeText` (registry) |
 | macOS | `loginwindow LoginwindowText` preference (primary) + `/Library/Security/PolicyBanner.txt/.rtf` (secondary) |
-| Linux (.deb / AUR) | D-Bus → privileged helper → polkit authentication |
-| Linux (AppImage) | pkexec shell script (password prompt per operation) |
+| Linux | XDG autostart + `notify-send` desktop notification — **no root required** |
 
-On Linux, the message is written to `/etc/issue` as a universal TTY fallback, and to the active display manager's config:
-
-| Display Manager | Config written |
-|-----------------|----------------|
-| SDDM / PLM (KDE) | `/etc/sddm.conf.d/shutdown-timer-msg.conf` |
-| LightDM GTK | `/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf` |
-| LightDM Slick (Linux Mint) | `/etc/issue` only — slick-greeter has no text banner support |
-| GDM (GNOME) | `/etc/dconf/db/gdm.d/01-banner-message` + `dconf update` |
+On Linux, the message is saved to `~/.config/shutdowntimer/message.json` and an XDG autostart entry fires `notify-send` at the next login, showing the message as a desktop notification. Works on all major desktop environments (GNOME, KDE, XFCE, Cinnamon, MATE, LXQt, Budgie) without root access, polkit, or any system-level configuration.
 
 ### Auto-Clear
 
@@ -100,16 +92,13 @@ Schedules a one-shot task that runs `ShutdownTimer --auto-clear` headlessly at n
 
 ### Linux
 
-**The install method affects the privilege experience:**
+The startup message feature on Linux requires **no root access** — it stores the message as a user-owned file and delivers it as a desktop notification after the next login.
 
-- **`.deb` / AUR install** — A privileged D-Bus helper (`shutdowntimer-helper`) is installed at `/usr/libexec/`. It handles all root file writes and is protected by a PolicyKit action (`org.fakylab.shutdowntimer.write-message`). The password is requested **once per session** (`auth_admin_keep`) — you can save and update the login message multiple times without being asked again.
-
-- **AppImage** — No system-level helper is installed. The app falls back to generating a shell script and running it via `pkexec`. A password prompt appears **on each save or clear** operation. All functionality is identical; only the authentication frequency differs.
-
-Other notes:
-- Display manager (SDDM / PLM / LightDM / GDM) is detected at runtime via `systemctl is-active`.
-- The auto-clear feature uses a **systemd user service** — requires systemd (Ubuntu 16.04+, Fedora, Arch, etc.).
-- GDM support writes a dconf banner key; `/etc/issue` is always written as a TTY fallback regardless of DM.
+- Message is saved to `~/.config/shutdowntimer/message.json`
+- An XDG autostart entry (`~/.config/autostart/shutdowntimer-notify.desktop`) fires `notify-send` at the next login
+- Works on all major DEs without any privileged operations
+- `libnotify-bin` (Debian/Ubuntu/Mint) or `libnotify` (Arch/Fedora) provides `notify-send` — pre-installed on virtually all desktop Linux distributions
+- The auto-clear feature uses a **systemd user service** — requires systemd (Ubuntu 16.04+, Fedora, Arch, etc.)
 
 ### macOS
 
@@ -133,7 +122,7 @@ See [BUILDING.md](BUILDING.md) for full instructions. Quick reference:
 | CMake | 3.20 or newer |
 | C++ compiler (C++17) | GCC / Clang / MSVC |
 
-**Linux only:** `libglib2.0-dev` and `libpolkit-gobject-1-dev` are required to build the privileged D-Bus helper. If not found at configure time, the helper is skipped and the app still builds and works fully (using the AppImage-style pkexec fallback instead).
+**Linux:** No special build dependencies beyond Qt6. The message feature uses only standard Qt6 APIs.
 
 ### Build
 
@@ -165,7 +154,7 @@ To clean the build: `rm -rf build`
 | Platform | Minimum version | Notes |
 |----------|----------------|-------|
 | Windows | 10 (64-bit) | Administrator account required |
-| Linux | Any modern distro with systemd | Root access via pkexec or polkit |
+| Linux | Any modern distro with systemd | No root required for messages |
 | macOS | 12 Monterey | Administrator account required |
 
 ---

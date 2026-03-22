@@ -246,6 +246,3 @@ if(UNIX AND NOT APPLE)
     install(FILES packaging/debian/shutdowntimer.1
         DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 endif()
-
-    endif()
-endif()
