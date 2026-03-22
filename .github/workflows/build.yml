@@ -39,8 +39,7 @@ jobs:
             cmake ninja-build \
             qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
             qt6-l10n-tools \
-            libgl1-mesa-dev \
-            libglib2.0-dev libpolkit-gobject-1-dev pkg-config
+            libgl1-mesa-dev
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build

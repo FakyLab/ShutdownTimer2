@@ -9,13 +9,11 @@ license=('GPL3')
 depends=(
     'qt6-base'
     'qt6-tools'
-    'polkit'
-    'glib2'
+    'libnotify'
 )
 makedepends=(
     'cmake'
     'ninja'
-    'pkg-config'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')  # Replace with actual sha256sum before publishing
@@ -31,22 +29,6 @@ build() {
 
 package() {
     DESTDIR="$pkgdir" cmake --install build
-
-    # D-Bus system config
-    install -Dm644 "ShutdownTimer-$pkgver/linux/dbus/org.fakylab.ShutdownTimerHelper.conf" \
-        "$pkgdir/etc/dbus-1/system.d/org.fakylab.ShutdownTimerHelper.conf"
-
-    # D-Bus service activation
-    install -Dm644 "ShutdownTimer-$pkgver/linux/dbus/org.fakylab.ShutdownTimerHelper.service" \
-        "$pkgdir/usr/share/dbus-1/system-services/org.fakylab.ShutdownTimerHelper.service"
-
-    # PolicyKit policy
-    install -Dm644 "ShutdownTimer-$pkgver/linux/polkit/org.fakylab.shutdowntimer.policy" \
-        "$pkgdir/usr/share/polkit-1/actions/org.fakylab.shutdowntimer.policy"
-
-    # Systemd system service
-    install -Dm644 "ShutdownTimer-$pkgver/linux/systemd/shutdowntimer-helper.service" \
-        "$pkgdir/usr/lib/systemd/system/shutdowntimer-helper.service"
 
     # AppStream metadata
     install -Dm644 "ShutdownTimer-$pkgver/linux/appstream/org.fakylab.ShutdownTimer.appdata.xml" \

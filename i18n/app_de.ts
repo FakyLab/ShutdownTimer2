@@ -420,4 +420,11 @@ Aktueller Pfad:
             <translation type="unfinished" />
         </message>
     </context>
+    <context>
+        <name>MessageBackendLinux</name>
+        <message>
+            <source>Linux desktop (shown as a notification after the next login)</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
 </TS>

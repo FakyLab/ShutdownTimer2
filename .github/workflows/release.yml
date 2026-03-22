@@ -4,6 +4,19 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'Which jobs to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - appimage-only
+          - deb-only
+          - windows-only
+          - macos-only
 
 # Required for softprops/action-gh-release to create releases
 permissions:
@@ -15,6 +28,7 @@ jobs:
   release-windows:
     name: Windows — Portable ZIP
     runs-on: windows-latest
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'windows-only'
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +71,7 @@ jobs:
   release-linux-appimage:
     name: Linux — AppImage
     runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'appimage-only'
 
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +84,6 @@ jobs:
             qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
             qt6-l10n-tools \
             libgl1-mesa-dev \
-            libglib2.0-dev libpolkit-gobject-1-dev pkg-config \
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
             libxcb-xkb1 libxkbcommon-x11-0 \
@@ -129,6 +143,7 @@ jobs:
         run: |
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/shutdowntimer.desktop \
             --plugin qt \
             --output appimage \
             --verbosity=2
@@ -151,6 +166,7 @@ jobs:
   release-linux-deb:
     name: Linux — .deb Package
     runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'deb-only'
 
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +179,6 @@ jobs:
             qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
             qt6-l10n-tools \
             libgl1-mesa-dev \
-            libglib2.0-dev libpolkit-gobject-1-dev pkg-config \
             lintian
 
       - name: Configure
@@ -184,29 +199,6 @@ jobs:
           # Main executable
           mkdir -p $PKG/usr/bin
           cp build/ShutdownTimer $PKG/usr/bin/ShutdownTimer
-
-          # Privileged helper binary
-          mkdir -p $PKG/usr/libexec
-          cp build/shutdowntimer-helper $PKG/usr/libexec/shutdowntimer-helper
-
-          # D-Bus system bus config and service activation file
-          mkdir -p $PKG/etc/dbus-1/system.d
-          cp linux/dbus/org.fakylab.ShutdownTimerHelper.conf \
-             $PKG/etc/dbus-1/system.d/
-
-          mkdir -p $PKG/usr/share/dbus-1/system-services
-          cp linux/dbus/org.fakylab.ShutdownTimerHelper.service \
-             $PKG/usr/share/dbus-1/system-services/
-
-          # PolicyKit action
-          mkdir -p $PKG/usr/share/polkit-1/actions
-          cp linux/polkit/org.fakylab.shutdowntimer.policy \
-             $PKG/usr/share/polkit-1/actions/
-
-          # systemd service for the helper
-          mkdir -p $PKG/lib/systemd/system
-          cp linux/systemd/shutdowntimer-helper.service \
-             $PKG/lib/systemd/system/
 
           # Translations
           mkdir -p $PKG/usr/share/shutdowntimer/i18n
@@ -246,6 +238,7 @@ jobs:
   release-macos-x64:
     name: macOS — DMG + ZIP (Intel x86_64)
     runs-on: macos-15-intel      # Intel x86_64 runner (macos-13 retired Dec 2025)
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'macos-only'
 
     steps:
       - uses: actions/checkout@v4
@@ -343,6 +336,7 @@ jobs:
   release-macos-arm64:
     name: macOS — DMG + ZIP (Apple Silicon arm64)
     runs-on: macos-14      # macos-14+ = Apple Silicon arm64
+    if: github.event_name == 'push' || inputs.jobs == 'all' || inputs.jobs == 'macos-only'
 
     steps:
       - uses: actions/checkout@v4

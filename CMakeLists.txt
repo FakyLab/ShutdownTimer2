@@ -15,10 +15,6 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network LinguistTools)
-if(UNIX AND NOT APPLE)
-    find_package(Qt6 REQUIRED COMPONENTS DBus)
-endif()
-
 # ── Qt resource file (icons for tray / window) ────────────────────────────────
 set(QT_RESOURCES resources.qrc)
 
@@ -89,13 +85,11 @@ elseif(UNIX AND NOT APPLE)
     set(SOURCES_PLATFORM
         src/services/platform/linux/ShutdownBackendLinux.cpp
         src/services/platform/linux/MessageBackendLinux.cpp
-        src/services/platform/linux/MessageBackendLinuxDBus.cpp
         src/services/platform/linux/AutoClearBackendLinux.cpp
     )
     set(HEADERS_PLATFORM
         src/services/platform/linux/ShutdownBackendLinux.h
         src/services/platform/linux/MessageBackendLinux.h
-        src/services/platform/linux/MessageBackendLinuxDBus.h
         src/services/platform/linux/AutoClearBackendLinux.h
     )
 
@@ -198,10 +192,6 @@ target_link_libraries(ShutdownTimer PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network
 )
 
-if(UNIX AND NOT APPLE)
-    target_link_libraries(ShutdownTimer PRIVATE Qt6::DBus)
-endif()
-
 if(WIN32)
     target_link_libraries(ShutdownTimer PRIVATE
         advapi32 user32 shell32 ole32 oleaut32 taskschd PowrProf
@@ -257,49 +247,5 @@ if(UNIX AND NOT APPLE)
         DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 endif()
 
-# ── Linux privileged D-Bus helper ─────────────────────────────────────────────
-# Built only on Linux. Installed to /usr/libexec/ by the .deb / Flatpak.
-# The main app detects whether this helper is running and uses it
-# instead of writing /etc/ files directly.
-if(UNIX AND NOT APPLE)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(GIO       QUIET gio-2.0)
-        pkg_check_modules(POLKIT    QUIET polkit-gobject-1)
-
-        if(GIO_FOUND AND POLKIT_FOUND)
-            add_executable(shutdowntimer-helper
-                linux/helper/shutdowntimer-helper.cpp
-            )
-            target_include_directories(shutdowntimer-helper PRIVATE
-                ${GIO_INCLUDE_DIRS}
-                ${POLKIT_INCLUDE_DIRS}
-            )
-            target_link_libraries(shutdowntimer-helper PRIVATE
-                ${GIO_LIBRARIES}
-                ${POLKIT_LIBRARIES}
-            )
-            target_compile_options(shutdowntimer-helper PRIVATE
-                ${GIO_CFLAGS_OTHER}
-                ${POLKIT_CFLAGS_OTHER}
-            )
-            install(TARGETS shutdowntimer-helper
-                RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
-            install(FILES
-                linux/dbus/org.fakylab.ShutdownTimerHelper.conf
-                DESTINATION /etc/dbus-1/system.d)
-            install(FILES
-                linux/dbus/org.fakylab.ShutdownTimerHelper.service
-                DESTINATION /usr/share/dbus-1/system-services)
-            install(FILES
-                linux/polkit/org.fakylab.shutdowntimer.policy
-                DESTINATION /usr/share/polkit-1/actions)
-            install(FILES
-                linux/systemd/shutdowntimer-helper.service
-                DESTINATION /lib/systemd/system)
-        else()
-            message(STATUS "ShutdownTimer: gio-2.0 or polkit-gobject-1 not found — "
-                           "helper will not be built (Flatpak mode unavailable)")
-        endif()
     endif()
 endif()

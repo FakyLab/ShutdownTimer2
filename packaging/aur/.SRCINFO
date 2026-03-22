@@ -7,11 +7,9 @@ pkgbase = shutdowntimer
 	license = GPL3
 	makedepends = cmake
 	makedepends = ninja
-	makedepends = pkg-config
 	depends = qt6-base
 	depends = qt6-tools
-	depends = polkit
-	depends = glib2
+	depends = libnotify
 	source = shutdowntimer-1.0.0.tar.gz::https://github.com/FakyLab/ShutdownTimer/archive/v1.0.0.tar.gz
 	sha256sums = SKIP
 

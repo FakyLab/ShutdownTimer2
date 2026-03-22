@@ -1,16 +1,28 @@
 #pragma once
 
 #include "../../interfaces/IMessageBackend.h"
+#include <QString>
 
-enum class LinuxLoginBackend {
-    EtcIssue,       // universal TTY fallback — always written
-    SDDM,           // KDE display manager — clean config file
-    PLM,            // Plasma Login Manager (KDE Plasma 6.6+, Fedora 44+) — SDDM fork
-    LightDM,        // LightDM with GTK greeter (Ubuntu MATE, Xubuntu)
-    LightDMSlick,   // LightDM with slick-greeter (Linux Mint) — no text banner
-    GDM,            // GNOME — uses dconf for login banner
-    Unknown
-};
+// MessageBackendLinux
+//
+// Stores the startup message as a JSON file in the user's config directory.
+// No root access required — everything is user-owned.
+//
+// On write():
+//   - Saves message to ~/.config/ShutdownTimer/message.json
+//   - Writes ~/.config/autostart/shutdowntimer-notify.desktop
+//     (XDG autostart entry that fires --show-notification at next login)
+//
+// On clear():
+//   - Removes message.json and the autostart .desktop
+//
+// On read():
+//   - Reads message.json
+//
+// At next login, the XDG autostart entry fires:
+//   ShutdownTimer --show-notification
+// which reads message.json, shows a desktop notification via notify-send,
+// then removes both files.
 
 class MessageBackendLinux : public IMessageBackend
 {
@@ -25,50 +37,12 @@ public:
     QString platformDescription() const   override;
     QString lastError() const             override { return m_lastError; }
 
-    // Exposed for UI status reporting
-    LinuxLoginBackend detectedBackend() const { return m_backend; }
+    // Path helpers — shared with main.cpp handlers
+    static QString messageFilePath();
+    static QString autostartDesktopPath();
 
 private:
-    LinuxLoginBackend detectBackend() const;
-    void ensureBackendDetected() const;  // lazy one-time DM detection
-    bool isServiceActive(const QString& name) const;
-    bool runWithPkexec(const QStringList& args);  // elevate via pkexec
+    bool writeAutostartEntry();
 
-    bool writeEtcIssue(const StartupMessage& msg);
-    bool clearEtcIssue();
-    bool readEtcIssue(StartupMessage& out);
-
-    bool writeSDDM(const StartupMessage& msg);
-    bool clearSDDM();
-
-    bool writeLightDM(const StartupMessage& msg);
-    bool clearLightDM();
-
-    bool writeGDM(const StartupMessage& msg);
-    bool clearGDM();
-
-    bool isSlickGreeter() const;
-
-    // Lazily detected on first write/read - not at construction time
-    // to avoid spawning QProcess calls on the main thread at startup.
-    mutable LinuxLoginBackend m_backend     = LinuxLoginBackend::Unknown;
-    mutable bool              m_backendDetected = false;
-    QString                   m_lastError;
-
-    // Sentinel comments used to identify our block in /etc/issue
-    static constexpr char kIssueBegin[] = "# --- ShutdownTimer message begin ---";
-    static constexpr char kIssueEnd[]   = "# --- ShutdownTimer message end ---";
-
-    // SDDM config drop-in path
-    static constexpr char kSddmConf[]    = "/etc/sddm.conf.d/shutdown-timer-msg.conf";
-    // PLM uses the same drop-in directory as SDDM (it is a SDDM fork)
-    static constexpr char kPlmConf[]     = "/etc/sddm.conf.d/shutdown-timer-msg.conf";
-
-    // LightDM greeter config drop-in
-    static constexpr char kLightDMConf[] = "/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf";
-
-    // GDM dconf paths for login banner
-    static constexpr char kGdmProfile[]  = "/etc/dconf/profile/gdm";
-    static constexpr char kGdmDbDir[]    = "/etc/dconf/db/gdm.d";
-    static constexpr char kGdmBannerDb[] = "/etc/dconf/db/gdm.d/01-banner-message";
+    QString m_lastError;
 };

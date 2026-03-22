@@ -1,20 +1,14 @@
 #!/bin/sh
 set -e
 
-# Update icon cache and desktop database
+# Update icon cache so the app icon appears in menus immediately
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 fi
+
+# Update desktop database so the app appears in application menus
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications || true
-fi
-
-# Register and start the privileged D-Bus helper service.
-# This enables the polkit-protected write path for login screen messages.
-if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running --quiet 2>/dev/null; then
-    systemctl daemon-reload || true
-    systemctl enable shutdowntimer-helper.service || true
-    systemctl start  shutdowntimer-helper.service || true
 fi
 
 exit 0

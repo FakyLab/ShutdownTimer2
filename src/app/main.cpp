@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QTimer>
+#include <QThread>
 #include <QFile>
 #include <QTemporaryFile>
 #include <QTextStream>
@@ -9,12 +10,9 @@
 #include <QDir>
 
 #if defined(Q_OS_LINUX)
-#  include <QDBusConnection>
-#  include <QDBusConnectionInterface>
-#  include <QDBusMessage>
 #  include <QJsonDocument>
 #  include <QJsonObject>
-#  include "services/platform/linux/SlickNotification.h"
+#  include "services/platform/linux/MessageBackendLinux.h"
 #endif
 
 #include "views/MainWindow.h"
@@ -97,20 +95,18 @@ static bool handleAutoClear(int argc, char* argv[])
 #endif
 
 #if defined(Q_OS_LINUX)
-    // --show-notification: fired by the XDG autostart entry on Linux Mint
-    // (slick-greeter systems) after the user logs in.
-    // Reads the pending notification JSON, shows it via notify-send,
-    // then removes both the data file and the autostart .desktop file.
-    // Requires no root — everything is in the user's own config directory.
+    // --show-notification: fired by the XDG autostart entry at next login.
+    // Reads ~/.config/ShutdownTimer/message.json, shows a desktop notification
+    // via notify-send, then removes both the JSON file and the autostart .desktop.
+    // Requires no root — all files are user-owned.
     if (strcmp(argv[1], "--show-notification") == 0) {
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
 
-        QString dataPath    = SlickNotification::dataFilePath();
-        QString desktopPath = SlickNotification::autostartDesktopPath();
+        QString msgPath     = MessageBackendLinux::messageFilePath();
+        QString desktopPath = MessageBackendLinux::autostartDesktopPath();
 
-        // Read the pending notification data
-        QFile f(dataPath);
+        QFile f(msgPath);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
             f.close();
@@ -121,20 +117,24 @@ static bool handleAutoClear(int argc, char* argv[])
                 QString body  = obj.value("body").toString().trimmed();
 
                 if (!title.isEmpty() || !body.isEmpty()) {
+                    // Small delay ensures the notification daemon is ready.
+                    // XDG autostart fires very early in the session — without
+                    // a brief wait, notify-send may fail on slower machines.
+                    QThread::msleep(2000);
+
                     // notify-send arguments:
-                    // --app-name   : "Shutdown Timer" shown in notification header
-                    // --urgency    : normal (no forced timeout override)
-                    // --icon       : app's registered icon if installed
-                    // --expire-time: 0 = notification daemon decides expiry;
-                    //               suitable for a message the user deliberately set
+                    // --app-name    : shown in the notification header
+                    // --urgency     : normal — no forced timeout
+                    // --icon        : app icon if registered
+                    // --expire-time : 0 = daemon decides; message stays until dismissed
                     QString summary = title.isEmpty() ? body : title;
                     QString hint    = title.isEmpty() ? QString() : body;
 
                     QStringList args{
-                        "--app-name",     "Shutdown Timer",
-                        "--urgency",      "normal",
-                        "--icon",         "shutdowntimer",
-                        "--expire-time",  "0",
+                        "--app-name",    "Shutdown Timer",
+                        "--urgency",     "normal",
+                        "--icon",        "shutdowntimer",
+                        "--expire-time", "0",
                         summary
                     };
                     if (!hint.isEmpty())
@@ -145,9 +145,8 @@ static bool handleAutoClear(int argc, char* argv[])
             }
         }
 
-        // Clean up unconditionally — even if notify-send failed, stale files
-        // must not cause repeat firings at future logins.
-        QFile::remove(dataPath);
+        // Clean up unconditionally — stale files must not cause repeat firings
+        QFile::remove(msgPath);
         QFile::remove(desktopPath);
 
         return true;
@@ -200,103 +199,18 @@ static bool handleAutoClear(int argc, char* argv[])
     }
 #elif defined(Q_OS_LINUX)
     {
-        // A minimal QCoreApplication is needed for QProcess, QFile, QDBus on Linux.
+        // --auto-clear on Linux: entirely unprivileged.
+        // The message is stored as user-owned files in ~/.config/ — no root needed.
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
 
-        // -- Privileged clear: two paths depending on install method --
-        //
-        // .deb / AUR (helper installed):
-        //   Call ClearMessage() on the D-Bus helper via the system bus.
-        //   The helper handles polkit authentication and clears all root-owned
-        //   files (/etc/issue, DM configs). This is the same path the
-        //   interactive Clear button uses — no shell script, no /tmp, no pkexec.
-        //   This is the maximum-security path: a fixed, auditable binary at
-        //   /usr/libexec/shutdowntimer-helper, protected by a polkit action.
-        //
-        // AppImage (no helper installed):
-        //   Generate a shell script in /tmp (random name, chmod 700) and run
-        //   it via pkexec /bin/sh. This avoids the AppImage FUSE/noexec problem
-        //   that would prevent pkexec from re-running the AppImage binary itself.
+        // Remove message file and autostart entry.
+        // MessageBackendLinux::clear() does exactly this — use its paths
+        // to stay consistent with the interactive Clear button.
+        QFile::remove(MessageBackendLinux::messageFilePath());
+        QFile::remove(MessageBackendLinux::autostartDesktopPath());
 
-        bool cleared = false;
-
-        // Check if the D-Bus helper is available (non-blocking, reads cached list)
-        {
-            QDBusConnectionInterface* bus =
-                QDBusConnection::systemBus().interface();
-            bool helperAvailable = false;
-            if (bus) {
-                if (bus->isServiceRegistered(
-                        QLatin1String("org.fakylab.ShutdownTimerHelper"))) {
-                    helperAvailable = true;
-                } else {
-                    QDBusReply<QStringList> activatable =
-                        bus->activatableServiceNames();
-                    if (activatable.isValid())
-                        helperAvailable = activatable.value().contains(
-                            QLatin1String("org.fakylab.ShutdownTimerHelper"));
-                }
-            }
-
-            if (helperAvailable) {
-                // .deb / AUR path: call ClearMessage() on the D-Bus helper.
-                // polkit will show the password dialog if needed.
-                // auth_admin_keep means the user may not be prompted at all
-                // if they already authenticated during this session.
-                QDBusMessage call = QDBusMessage::createMethodCall(
-                    QLatin1String("org.fakylab.ShutdownTimerHelper"),
-                    QLatin1String("/org/fakylab/ShutdownTimerHelper"),
-                    QLatin1String("org.fakylab.ShutdownTimerHelper"),
-                    QLatin1String("ClearMessage")
-                );
-                QDBusMessage reply =
-                    QDBusConnection::systemBus().call(call, QDBus::Block, 30000);
-                cleared = (reply.type() != QDBusMessage::ErrorMessage);
-            }
-        }
-
-        if (!cleared) {
-            // AppImage path (or helper unavailable): shell script via pkexec.
-            // Script contains only hardcoded system paths — no user data,
-            // no injection surface. Random filename + chmod 700 closes the
-            // race window between write and execution.
-            QStringList script;
-            script << "#!/bin/sh";
-            script << "set -e";
-            script << "BEGIN_MARKER='# --- ShutdownTimer message begin ---'";
-            script << "END_MARKER='# --- ShutdownTimer message end ---'";
-            script << "if [ -f /etc/issue ]; then";
-            script << "  sed -i \"/$BEGIN_MARKER/,/$END_MARKER/d\" /etc/issue";
-            script << "fi";
-            script << "rm -f /etc/sddm.conf.d/shutdown-timer-msg.conf";
-            script << "rm -f /etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf";
-            script << "rm -f /etc/dconf/db/gdm.d/01-banner-message";
-            script << "dconf update 2>/dev/null || true";
-
-            QTemporaryFile tmpFile(QDir::tempPath() + "/shutdowntimer_XXXXXX.sh");
-            tmpFile.setAutoRemove(false);
-            if (tmpFile.open()) {
-                QString scriptPath = tmpFile.fileName();
-                {
-                    QTextStream out(&tmpFile);
-                    for (const QString& line : script)
-                        out << line << "\n";
-                    tmpFile.close();
-                    tmpFile.setPermissions(
-                        QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                        QFileDevice::ExeOwner);
-                }
-                QProcess::execute("pkexec", QStringList{"/bin/sh", scriptPath});
-                QFile::remove(scriptPath);
-            }
-        }
-
-        // Remove any pending Slick-greeter notification files so the user
-        // doesn't get a stale notification after the message has been cleared.
-        SlickNotification::clear();
-
-        // Remove the systemd unit and reload — no root needed.
+        // Remove the systemd user service unit and reload.
         QString configHome = QStandardPaths::writableLocation(
             QStandardPaths::GenericConfigLocation);
         QString unitPath = configHome +

@@ -34,19 +34,30 @@ bool MessageBackendMacOS::runElevated(const QString& shellCmd)
             return false;
         }
         QTextStream out(&f);
-        out << "do shell script \"" << shellCmd << "\" with administrator privileges\n";
+        // do shell script returns the stdout of the command.
+        // We redirect stderr to stdout so error output is captured too.
+        out << "do shell script \"" << shellCmd
+            << " 2>&1\" with administrator privileges\n";
     }
 
     QProcess proc;
     proc.start("osascript", QStringList{scriptPath});
     proc.waitForFinished(30000);
+
+    QString scriptOutput = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    QString scriptError  = QString::fromUtf8(proc.readAllStandardError()).trimmed();
     QFile::remove(scriptPath);
 
     if (proc.exitCode() != 0) {
-        QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-        m_lastError = err.isEmpty()
-            ? tr("Authentication failed or was cancelled.")
-            : err;
+        // Prefer the AppleScript error (stderr) as it gives the most useful
+        // context (e.g. "not authorized"). If absent, fall back to the
+        // shell command output (which we redirected to stdout above).
+        if (!scriptError.isEmpty())
+            m_lastError = scriptError;
+        else if (!scriptOutput.isEmpty())
+            m_lastError = scriptOutput;
+        else
+            m_lastError = tr("Authentication failed or was cancelled.");
         return false;
     }
     return true;
@@ -254,36 +265,32 @@ bool MessageBackendMacOS::read(StartupMessage& out)
 // -- clear --
 //
 // Removes loginwindow preference and both PolicyBanner files.
-// Tries direct removal first; falls back to a single elevated call.
+// Tries direct removal first (works if already running as root),
+// then always elevates via osascript for the loginwindow key deletion
+// since /Library/Preferences is root-owned on macOS.
 
 bool MessageBackendMacOS::clear()
 {
-    // Try direct removal first (works if running as root)
-    QProcess defProc;
-    defProc.start("defaults", QStringList{
-        "delete", kLoginwindowPlist, kLoginwindowKey
-    });
-    defProc.waitForFinished(5000);
-    // exit code 1 = key didn't exist — not an error
-
+    // Try direct removal of banner files (succeeds if we're root or they
+    // don't exist). The loginwindow key always needs elevation.
     QFile fileTxt(kBannerPath);
     QFile fileRtf(kBannerPathRtf);
     bool txtGone = !fileTxt.exists() || fileTxt.remove();
     bool rtfGone = !fileRtf.exists() || fileRtf.remove();
 
-    if (txtGone && rtfGone)
-        return true;
-
-    // Banner files couldn't be removed — elevate.
-    // Re-issue the defaults delete too in case it also failed silently.
-    // Use ; between commands so rm runs even if defaults delete fails
-    // (the key may already be gone from the direct attempt above).
+    // Always run the elevated clear to ensure the loginwindow key is deleted.
+    // /Library/Preferences/com.apple.loginwindow requires root to write.
+    // Use ; between commands so rm -f runs even if defaults delete fails
+    // (key may already be absent if message was never set via this app).
+    // 2>/dev/null silences "does not exist" errors from defaults delete.
     QString shellCmd =
         "defaults delete " + shellArgQuote(kLoginwindowPlist)
         + " " + shellArgQuote(kLoginwindowKey)
-        + " ; rm -f "
-        + shellArgQuote(kBannerPath) + " "
-        + shellArgQuote(kBannerPathRtf);
+        + " 2>/dev/null ; true"
+        + (txtGone ? QString() :
+            " ; rm -f " + shellArgQuote(kBannerPath))
+        + (rtfGone ? QString() :
+            " ; rm -f " + shellArgQuote(kBannerPathRtf));
 
     return runElevated(shellCmd);
 }
