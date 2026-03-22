@@ -1,0 +1,38 @@
+#include <windows.h>
+
+// ── Application icon ─────────────────────────────────────────────────────────
+101 ICON "assets/icon.ico"
+
+// ── Embed UAC manifest ────────────────────────────────────────────────────────
+// RT_MANIFEST resource ID 1 = exe manifest
+1 RT_MANIFEST "app.manifest"
+
+// ── Version information ───────────────────────────────────────────────────────
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"   // English (US), Unicode
+        BEGIN
+            VALUE "CompanyName",      "FakyLab"
+            VALUE "FileDescription",  "Shutdown Timer"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "ShutdownTimer"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 FakyLab"
+            VALUE "OriginalFilename", "ShutdownTimer.exe"
+            VALUE "ProductName",      "Shutdown Timer"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

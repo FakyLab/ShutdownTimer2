@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Shutdown Timer
+GenericName=Shutdown Timer
+Comment=Schedule system shutdowns, restarts, and set a login screen message
+Exec=ShutdownTimer
+Icon=shutdowntimer
+Terminal=false
+StartupNotify=true
+StartupWMClass=ShutdownTimer
+Categories=Utility;System;
+Keywords=shutdown;restart;timer;sleep;hibernate;login;message;

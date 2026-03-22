@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.fakylab.ShutdownTimer</id>
+  <name>Shutdown Timer</name>
+  <summary>Schedule shutdown with login screen messaging</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <description>
+    <p>
+      Shutdown Timer is a cross-platform desktop utility for scheduling
+      system shutdowns, restarts, sleep, and hibernation actions — either
+      as a countdown or at a specific time.
+    </p>
+    <p>
+      It also lets administrators set a message on the login screen before
+      a scheduled shutdown, so users are informed in advance. The message
+      is automatically cleared after the next login.
+    </p>
+    <ul>
+      <li>Countdown timer or scheduled time</li>
+      <li>Shutdown, restart, sleep, and hibernate actions</li>
+      <li>Login screen messaging (SDDM, LightDM, /etc/issue)</li>
+      <li>Auto-clear message after next login</li>
+      <li>System tray support</li>
+      <li>9 languages: English, Arabic, Korean, Spanish, French, German,
+          Portuguese (BR), Chinese (Simplified), Japanese</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">org.fakylab.ShutdownTimer.desktop</launchable>
+
+  <url type="homepage">https://github.com/FakyLab/ShutdownTimer</url>
+  <url type="bugtracker">https://github.com/FakyLab/ShutdownTimer/issues</url>
+
+  <developer id="org.fakylab">
+    <name>FakyLab</name>
+  </developer>
+
+  <provides>
+    <binary>ShutdownTimer</binary>
+  </provides>
+
+  <categories>
+    <category>Utility</category>
+    <category>System</category>
+  </categories>
+
+  <keywords>
+    <keyword>shutdown</keyword>
+    <keyword>timer</keyword>
+    <keyword>restart</keyword>
+    <keyword>sleep</keyword>
+    <keyword>power</keyword>
+    <keyword>schedule</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-03-21">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Timer tab — set countdown or scheduled time</caption>
+      <image>https://raw.githubusercontent.com/FakyLab/ShutdownTimer/main/screenshots/screenshot_timer.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Message tab — set login screen message</caption>
+      <image>https://raw.githubusercontent.com/FakyLab/ShutdownTimer/main/screenshots/screenshot_message.png</image>
+    </screenshot>
+  </screenshots>
+</component>

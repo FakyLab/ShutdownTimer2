@@ -1,0 +1,304 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Required for softprops/action-gh-release to create releases
+permissions:
+  contents: write
+
+jobs:
+
+  # ── Windows ───────────────────────────────────────────────────────────────────
+  release-windows:
+    name: Windows — NSIS Installer + Portable ZIP
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Deploy Qt runtime
+        run: |
+          mkdir deploy
+          windeployqt --dir deploy build\Release\ShutdownTimer.exe
+          copy build\Release\ShutdownTimer.exe deploy\
+          xcopy /E /I build\Release\i18n deploy\i18n
+          copy LICENSE.txt deploy\
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+        shell: pwsh
+
+      - name: Build NSIS installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          & $nsis /DAPP_VERSION=$version "${{ github.workspace }}\installer.nsi"
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path deploy\* -DestinationPath ShutdownTimer-${{ github.ref_name }}-Windows-x64-Portable.zip
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ShutdownTimer-${{ github.ref_name }}-Windows-x64-Setup.exe
+            ShutdownTimer-${{ github.ref_name }}-Windows-x64-Portable.zip
+          generate_release_notes: true
+
+  # ── Linux AppImage ─────────────────────────────────────────────────────────────
+  # ubuntu-22.04 — ubuntu-20.04 runners are no longer available
+  release-linux-appimage:
+    name: Linux — AppImage
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
+            qt6-l10n-tools \
+            libgl1-mesa-dev \
+            libglib2.0-dev libpolkit-gobject-1-dev pkg-config \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 \
+            libxcb-xkb1 libxkbcommon-x11-0 \
+            fuse libfuse2 file
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Download linuxdeployqt
+        run: |
+          wget -q https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage
+          chmod +x linuxdeployqt-continuous-x86_64.AppImage
+          ./linuxdeployqt-continuous-x86_64.AppImage --appimage-extract
+          echo "$PWD/squashfs-root/usr/bin" >> $GITHUB_PATH
+
+      - name: Prepare AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          for size in 16 24 32 48 64 128 256; do
+            mkdir -p AppDir/usr/share/icons/hicolor/${size}x${size}/apps
+          done
+          cp build/ShutdownTimer AppDir/usr/bin/ShutdownTimer
+          mkdir -p AppDir/usr/share/shutdowntimer/i18n
+          cp build/i18n/*.qm AppDir/usr/share/shutdowntimer/i18n/
+          cp packaging/appimage/shutdowntimer.desktop AppDir/usr/share/applications/shutdowntimer.desktop
+          cp assets/shutdown16px.png  AppDir/usr/share/icons/hicolor/16x16/apps/shutdowntimer.png
+          cp assets/shutdown24px.png  AppDir/usr/share/icons/hicolor/24x24/apps/shutdowntimer.png
+          cp assets/shutdown32px.png  AppDir/usr/share/icons/hicolor/32x32/apps/shutdowntimer.png
+          cp assets/shutdown48px.png  AppDir/usr/share/icons/hicolor/48x48/apps/shutdowntimer.png
+          cp assets/shutdown64px.png  AppDir/usr/share/icons/hicolor/64x64/apps/shutdowntimer.png
+          cp assets/shutdown128px.png AppDir/usr/share/icons/hicolor/128x128/apps/shutdowntimer.png
+          cp assets/shutdown256px.png AppDir/usr/share/icons/hicolor/256x256/apps/shutdowntimer.png
+          mkdir -p AppDir/usr/share/doc/shutdowntimer
+          cp LICENSE.txt AppDir/usr/share/doc/shutdowntimer/copyright
+          cp packaging/appimage/AppRun AppDir/AppRun
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          linuxdeployqt \
+            AppDir/usr/share/applications/shutdowntimer.desktop \
+            -qmake=$(which qmake6 || which qmake) \
+            -appimage \
+            -no-translations \
+            -extra-plugins=platforms/libqxcb.so,iconengines,imageformats
+          # linuxdeployqt names the file from the desktop Name= field — find and rename
+          APPIMAGE=$(find . -maxdepth 1 -name "*.AppImage" | head -1)
+          echo "Found AppImage: $APPIMAGE"
+          mv "$APPIMAGE" ShutdownTimer-${{ github.ref_name }}-Linux-x86_64.AppImage
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ShutdownTimer-${{ github.ref_name }}-Linux-x86_64.AppImage
+
+  # ── Linux .deb ─────────────────────────────────────────────────────────────────
+  release-linux-deb:
+    name: Linux — .deb Package
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
+            qt6-l10n-tools \
+            libgl1-mesa-dev \
+            libglib2.0-dev libpolkit-gobject-1-dev pkg-config \
+            lintian
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Assemble .deb package tree
+        run: |
+          VERSION=${{ github.ref_name }}
+          DEB_VERSION=${VERSION#v}
+          PKG=shutdowntimer_${DEB_VERSION}_amd64
+
+          cp -r packaging/deb $PKG
+          sed -i "s/^Version:.*/Version: ${DEB_VERSION}/" $PKG/DEBIAN/control
+
+          mkdir -p $PKG/usr/bin
+          cp build/ShutdownTimer $PKG/usr/bin/ShutdownTimer
+
+          mkdir -p $PKG/usr/share/shutdowntimer/i18n
+          cp build/i18n/*.qm $PKG/usr/share/shutdowntimer/i18n/
+
+          for size in 16 24 32 48 64 128 256; do
+            mkdir -p $PKG/usr/share/icons/hicolor/${size}x${size}/apps
+          done
+          cp assets/shutdown16px.png  $PKG/usr/share/icons/hicolor/16x16/apps/shutdowntimer.png
+          cp assets/shutdown24px.png  $PKG/usr/share/icons/hicolor/24x24/apps/shutdowntimer.png
+          cp assets/shutdown32px.png  $PKG/usr/share/icons/hicolor/32x32/apps/shutdowntimer.png
+          cp assets/shutdown48px.png  $PKG/usr/share/icons/hicolor/48x48/apps/shutdowntimer.png
+          cp assets/shutdown64px.png  $PKG/usr/share/icons/hicolor/64x64/apps/shutdowntimer.png
+          cp assets/shutdown128px.png $PKG/usr/share/icons/hicolor/128x128/apps/shutdowntimer.png
+          cp assets/shutdown256px.png $PKG/usr/share/icons/hicolor/256x256/apps/shutdowntimer.png
+
+          cp packaging/deb/usr/share/applications/shutdowntimer.desktop \
+             $PKG/usr/share/applications/shutdowntimer.desktop
+
+          mkdir -p $PKG/usr/share/doc/shutdowntimer
+          cp LICENSE.txt $PKG/usr/share/doc/shutdowntimer/copyright
+
+          chmod 755 $PKG/DEBIAN/postinst $PKG/DEBIAN/prerm $PKG/DEBIAN/postrm
+
+          dpkg-deb --build --root-owner-group $PKG
+          mv ${PKG}.deb ShutdownTimer-${{ github.ref_name }}-Linux-x64.deb
+
+          lintian --no-tag-display-limit ShutdownTimer-${{ github.ref_name }}-Linux-x64.deb || true
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ShutdownTimer-${{ github.ref_name }}-Linux-x64.deb
+
+  # ── macOS .dmg + .zip ──────────────────────────────────────────────────────────
+  release-macos:
+    name: macOS — DMG + ZIP
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_MACOSX_BUNDLE=ON
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Find app bundle
+        run: |
+          echo "=== All .app bundles ==="
+          find . -name "*.app" -type d 2>/dev/null || echo "none found"
+          echo "=== Build directory contents ==="
+          ls -la build/
+          ls -la build/Release/ 2>/dev/null || echo "No Release subdir"
+
+      - name: Deploy Qt runtime into .app bundle
+        run: |
+          # Search for the bundle — cmake may place it in build/ or build/Release/
+          APP=$(find build -name "ShutdownTimer.app" -type d 2>/dev/null | head -1)
+          echo "App bundle: $APP"
+          if [ -z "$APP" ]; then
+            echo "ERROR: App bundle not found. Build contents:"
+            find build -type f -name "ShutdownTimer*" 2>/dev/null
+            exit 1
+          fi
+          macdeployqt "$APP"
+          cp LICENSE.txt "$APP/Contents/Resources/"
+          mkdir -p "$APP/Contents/Resources/i18n"
+          # POST_BUILD copies .qm files next to the binary (MacOS/i18n)
+          # We also need them in Resources/i18n for LanguageManager
+          find build -name "*.qm" | xargs -I{} cp {} "$APP/Contents/Resources/i18n/"
+
+      - name: Generate .icns from PNG assets
+        run: |
+          mkdir -p icon.iconset
+          sips -z 16  16  assets/shutdown256px.png --out icon.iconset/icon_16x16.png
+          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_32x32.png
+          sips -z 64  64  assets/shutdown256px.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128 assets/shutdown256px.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256 assets/shutdown256px.png --out icon.iconset/icon_128x128@2x.png
+          cp assets/shutdown256px.png icon.iconset/icon_256x256.png
+          iconutil -c icns icon.iconset -o assets/icon.icns
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          cp assets/icon.icns "$APP/Contents/Resources/"
+
+      - name: Build .dmg
+        run: |
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          create-dmg \
+            --volname "Shutdown Timer" \
+            --volicon "assets/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "ShutdownTimer.app" 175 190 \
+            --hide-extension "ShutdownTimer.app" \
+            --app-drop-link 425 190 \
+            "ShutdownTimer-${{ github.ref_name }}-macOS.dmg" \
+            "$APP"
+
+      - name: Build .zip as fallback
+        run: |
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          APPDIR=$(dirname "$APP")
+          cd "$APPDIR"
+          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS.zip" ShutdownTimer.app
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ShutdownTimer-${{ github.ref_name }}-macOS.dmg
+            ShutdownTimer-${{ github.ref_name }}-macOS.zip

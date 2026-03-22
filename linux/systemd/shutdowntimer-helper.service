@@ -1,0 +1,9 @@
+[Unit]
+Description=ShutdownTimer privileged helper
+Documentation=https://github.com/FakyLab/ShutdownTimer
+
+[Service]
+Type=dbus
+BusName=org.fakylab.ShutdownTimerHelper
+ExecStart=/usr/libexec/shutdowntimer-helper
+Restart=on-failure

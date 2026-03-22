@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.fakylab.ShutdownTimerHelper
+Exec=/usr/libexec/shutdowntimer-helper
+User=root
+SystemdService=shutdowntimer-helper.service

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>FakyLab</vendor>
+  <vendor_url>https://github.com/FakyLab/ShutdownTimer</vendor_url>
+
+  <action id="org.fakylab.shutdowntimer.write-message">
+    <description>Set login screen message</description>
+    <message>Authentication is required to set a message on the login screen.</message>
+    <icon_name>dialog-password</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.fakylab.shutdowntimer.clear-message">
+    <description>Clear login screen message</description>
+    <message>Authentication is required to clear the login screen message.</message>
+    <icon_name>dialog-password</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+</policyconfig>

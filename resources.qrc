@@ -1,0 +1,14 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/assets">
+        <file alias="icon.ico">assets/icon.ico</file>
+        <file alias="shutdown16px.png">assets/shutdown16px.png</file>
+        <file alias="shutdown24px.png">assets/shutdown24px.png</file>
+        <file alias="shutdown32px.png">assets/shutdown32px.png</file>
+        <file alias="shutdown48px.png">assets/shutdown48px.png</file>
+        <file alias="shutdown64px.png">assets/shutdown64px.png</file>
+        <file alias="shutdown128px.png">assets/shutdown128px.png</file>
+        <file alias="shutdown256px.png">assets/shutdown256px.png</file>
+        <file alias="shutdown512px.png">assets/shutdown512px.png</file>
+    </qresource>
+</RCC>

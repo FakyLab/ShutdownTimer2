@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+# Kill the app if running before files are removed
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f ShutdownTimer || true
+fi
+
+exit 0

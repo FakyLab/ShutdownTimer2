@@ -1,0 +1,46 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake --with=systemd
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr
+
+override_dh_auto_install:
+	dh_auto_install
+	# Install D-Bus system config
+	install -Dm644 linux/dbus/org.fakylab.ShutdownTimerHelper.conf \
+		debian/shutdowntimer/etc/dbus-1/system.d/org.fakylab.ShutdownTimerHelper.conf
+	# Install D-Bus service activation file
+	install -Dm644 linux/dbus/org.fakylab.ShutdownTimerHelper.service \
+		debian/shutdowntimer/usr/share/dbus-1/system-services/org.fakylab.ShutdownTimerHelper.service
+	# Install PolicyKit policy
+	install -Dm644 linux/polkit/org.fakylab.shutdowntimer.policy \
+		debian/shutdowntimer/usr/share/polkit-1/actions/org.fakylab.shutdowntimer.policy
+	# Install systemd system service
+	install -Dm644 linux/systemd/shutdowntimer-helper.service \
+		debian/shutdowntimer/lib/systemd/system/shutdowntimer-helper.service
+	# Install AppStream metadata
+	install -Dm644 linux/appstream/org.fakylab.ShutdownTimer.appdata.xml \
+		debian/shutdowntimer/usr/share/metainfo/org.fakylab.ShutdownTimer.appdata.xml
+	# Install desktop file
+	install -Dm644 packaging/appimage/shutdowntimer.desktop \
+		debian/shutdowntimer/usr/share/applications/org.fakylab.ShutdownTimer.desktop
+	# Install icons
+	install -Dm644 assets/shutdown16px.png  debian/shutdowntimer/usr/share/icons/hicolor/16x16/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown24px.png  debian/shutdowntimer/usr/share/icons/hicolor/24x24/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown32px.png  debian/shutdowntimer/usr/share/icons/hicolor/32x32/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown48px.png  debian/shutdowntimer/usr/share/icons/hicolor/48x48/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown64px.png  debian/shutdowntimer/usr/share/icons/hicolor/64x64/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown128px.png debian/shutdowntimer/usr/share/icons/hicolor/128x128/apps/org.fakylab.ShutdownTimer.png
+	install -Dm644 assets/shutdown256px.png debian/shutdowntimer/usr/share/icons/hicolor/256x256/apps/org.fakylab.ShutdownTimer.png
+	# Install man page
+	install -Dm644 packaging/debian/shutdowntimer.1 \
+		debian/shutdowntimer/usr/share/man/man1/shutdowntimer.1
+	# Install i18n files
+	install -d debian/shutdowntimer/usr/share/shutdowntimer/i18n
+	cp build/i18n/*.qm debian/shutdowntimer/usr/share/shutdowntimer/i18n/ 2>/dev/null || true

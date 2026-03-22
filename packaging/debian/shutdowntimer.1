@@ -1,0 +1,62 @@
+.TH SHUTDOWNTIMER 1 "March 2026" "1.0.0" "User Commands"
+.SH NAME
+shutdowntimer \- schedule system shutdown with login screen messaging
+.SH SYNOPSIS
+.B shutdowntimer
+.RI [ OPTION ]
+.SH DESCRIPTION
+.B shutdowntimer
+is a desktop utility for scheduling system shutdowns, restarts, sleep,
+and hibernation actions \(em either as a countdown or at a specific time.
+.PP
+It also allows administrators to set a message on the login screen before
+a scheduled shutdown, so users are informed in advance. The message is
+automatically cleared after the next login.
+.SH OPTIONS
+.TP
+.B \-\-auto\-clear
+Run in headless mode: clear the login screen message and exit.
+This is invoked automatically by the systemd user service scheduled
+when the "auto-clear after next login" option is enabled.
+.SH FILES
+.TP
+.I /etc/issue
+Universal TTY login message. ShutdownTimer writes a clearly marked block
+inside this file and removes it on clear.
+.TP
+.I /etc/sddm.conf.d/shutdown-timer-msg.conf
+SDDM greeter message drop-in configuration. Created when SDDM is detected.
+Removed on clear.
+.TP
+.I /etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf
+LightDM greeter message drop-in configuration. Created when LightDM is
+detected. Removed on clear.
+.TP
+.I ~/.config/systemd/user/shutdowntimer-autoclear.service
+Systemd user service that runs
+.B \-\-auto\-clear
+once at the next login. Created when auto-clear is enabled, removed after
+it fires.
+.SH PRIVILEGED OPERATIONS
+Writing to
+.I /etc/issue
+and display manager configuration files requires administrator privileges.
+ShutdownTimer uses PolicyKit (
+.BR polkit (8)
+) to request elevated permissions. The user is prompted for their
+password once per session.
+.PP
+When running inside a Flatpak sandbox, privilege escalation is handled
+by the
+.B shutdowntimer-helper
+D-Bus system service.
+.SH SEE ALSO
+.BR systemctl (1),
+.BR shutdown (8),
+.BR polkit (8),
+.BR sddm (1),
+.BR lightdm (1)
+.SH BUGS
+Report bugs at https://github.com/FakyLab/ShutdownTimer/issues
+.SH AUTHOR
+FakyLab <https://github.com/FakyLab>

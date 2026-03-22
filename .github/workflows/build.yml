@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build-windows:
+    name: Windows (Qt6 MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+  build-linux:
+    name: Linux (Qt6 GCC)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools \
+            qt6-l10n-tools \
+            libgl1-mesa-dev \
+            libglib2.0-dev libpolkit-gobject-1-dev pkg-config
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+
+  build-macos:
+    name: macOS (Qt6 Clang)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release

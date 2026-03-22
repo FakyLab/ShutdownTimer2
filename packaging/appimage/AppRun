@@ -1,0 +1,18 @@
+#!/bin/bash
+# AppRun — entry point for the AppImage.
+# Sets APPDIR so the app can locate bundled resources at runtime,
+# since the AppImage is mounted at a dynamic path like /tmp/.mount_xxxxx.
+
+# APPDIR is the mount root of the AppImage filesystem
+HERE="$(dirname "$(readlink -f "${0}")")"
+export APPDIR="${HERE}"
+
+# Tell LanguageManager where to find the bundled .qm files.
+# This overrides the /usr/share/shutdowntimer search with the AppImage-local path.
+export SHUTDOWNTIMER_I18N_DIR="${APPDIR}/usr/share/shutdowntimer/i18n"
+
+# Required Qt environment for XCB platform plugin
+export QT_QPA_PLATFORM_PLUGIN_PATH="${APPDIR}/usr/plugins/platforms"
+export QT_PLUGIN_PATH="${APPDIR}/usr/plugins"
+
+exec "${APPDIR}/usr/bin/ShutdownTimer" "$@"

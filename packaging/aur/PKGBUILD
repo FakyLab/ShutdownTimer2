@@ -1,0 +1,68 @@
+# Maintainer: FakyLab <fakylab@proton.me>
+pkgname=shutdowntimer
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Schedule system shutdown with login screen messaging"
+arch=('x86_64')
+url="https://github.com/FakyLab/ShutdownTimer"
+license=('GPL3')
+depends=(
+    'qt6-base'
+    'qt6-tools'
+    'polkit'
+    'glib2'
+)
+makedepends=(
+    'cmake'
+    'ninja'
+    'pkg-config'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # Replace with actual sha256sum before publishing
+
+build() {
+    cmake -B build -S "ShutdownTimer-$pkgver" \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -Wno-dev
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+
+    # D-Bus system config
+    install -Dm644 "ShutdownTimer-$pkgver/linux/dbus/org.fakylab.ShutdownTimerHelper.conf" \
+        "$pkgdir/etc/dbus-1/system.d/org.fakylab.ShutdownTimerHelper.conf"
+
+    # D-Bus service activation
+    install -Dm644 "ShutdownTimer-$pkgver/linux/dbus/org.fakylab.ShutdownTimerHelper.service" \
+        "$pkgdir/usr/share/dbus-1/system-services/org.fakylab.ShutdownTimerHelper.service"
+
+    # PolicyKit policy
+    install -Dm644 "ShutdownTimer-$pkgver/linux/polkit/org.fakylab.shutdowntimer.policy" \
+        "$pkgdir/usr/share/polkit-1/actions/org.fakylab.shutdowntimer.policy"
+
+    # Systemd system service
+    install -Dm644 "ShutdownTimer-$pkgver/linux/systemd/shutdowntimer-helper.service" \
+        "$pkgdir/usr/lib/systemd/system/shutdowntimer-helper.service"
+
+    # AppStream metadata
+    install -Dm644 "ShutdownTimer-$pkgver/linux/appstream/org.fakylab.ShutdownTimer.appdata.xml" \
+        "$pkgdir/usr/share/metainfo/org.fakylab.ShutdownTimer.appdata.xml"
+
+    # Desktop file
+    install -Dm644 "ShutdownTimer-$pkgver/packaging/appimage/shutdowntimer.desktop" \
+        "$pkgdir/usr/share/applications/org.fakylab.ShutdownTimer.desktop"
+
+    # Icons
+    for size in 16 24 32 48 64 128 256; do
+        install -Dm644 "ShutdownTimer-$pkgver/assets/shutdown${size}px.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/org.fakylab.ShutdownTimer.png"
+    done
+
+    # Man page
+    install -Dm644 "ShutdownTimer-$pkgver/packaging/debian/shutdowntimer.1" \
+        "$pkgdir/usr/share/man/man1/shutdowntimer.1"
+}
