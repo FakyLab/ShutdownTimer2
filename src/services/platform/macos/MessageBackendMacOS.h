@@ -22,5 +22,8 @@ public:
 private:
     QString m_lastError;
 
-    static constexpr char kBannerPath[] = "/Library/Security/PolicyBanner.txt";
+    // .txt = macOS 12 and earlier
+    static constexpr char kBannerPath[]    = "/Library/Security/PolicyBanner.txt";
+    // .rtf = macOS 13+ (Ventura deprecated .txt in favour of .rtf)
+    static constexpr char kBannerPathRtf[] = "/Library/Security/PolicyBanner.rtf";
 };

@@ -13,7 +13,7 @@ jobs:
 
   # ── Windows ───────────────────────────────────────────────────────────────────
   release-windows:
-    name: Windows — NSIS Installer + Portable ZIP
+    name: Windows — Portable ZIP
     runs-on: windows-latest
 
     steps:
@@ -41,26 +41,13 @@ jobs:
           xcopy /E /I build\Release\i18n deploy\i18n
           copy LICENSE.txt deploy\
 
-      - name: Install NSIS
-        run: choco install nsis --no-progress -y
-        shell: pwsh
-
-      - name: Build NSIS installer
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
-          & $nsis /DAPP_VERSION=$version "${{ github.workspace }}\installer.nsi"
-
       - name: Build portable ZIP
-        shell: pwsh
         run: Compress-Archive -Path deploy\* -DestinationPath ShutdownTimer-${{ github.ref_name }}-Windows-x64-Portable.zip
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ShutdownTimer-${{ github.ref_name }}-Windows-x64-Setup.exe
             ShutdownTimer-${{ github.ref_name }}-Windows-x64-Portable.zip
           generate_release_notes: true
 
