@@ -33,14 +33,27 @@ PlatformServices PlatformServiceFactory::create(QObject* parent)
     s.shutdown  = new ShutdownBackendLinux(parent);
     s.autoClear = new AutoClearBackendLinux(parent);
 
+    // Detect the display manager once at startup. This result is used both
+    // to select the right message backend and (for the D-Bus path) to pass
+    // as a hint to the helper so it doesn't re-run systemctl on every write.
+    //
     // isHelperAvailable() is non-blocking — reads the D-Bus daemon's cached
     // activatable services list. Safe to call on the main thread at startup.
-    // When the helper is present (Flatpak / system install with PolicyKit),
-    // use the D-Bus backend. Otherwise fall back to direct file writes.
-    if (MessageBackendLinuxDBus::isHelperAvailable())
-        s.message = new MessageBackendLinuxDBus(parent);
-    else
+    // When the helper is present (.deb / AUR install with PolicyKit),
+    // use the D-Bus backend. Otherwise fall back to direct file writes
+    // (AppImage installs, or systems without the helper).
+    if (MessageBackendLinuxDBus::isHelperAvailable()) {
+        // Detect the DM using a temporary MessageBackendLinux instance.
+        // platformDescription() triggers the lazy systemctl detection.
+        // We then read the result and discard the detector — the D-Bus
+        // backend is what the app will actually use.
+        MessageBackendLinux detector;
+        detector.platformDescription(); // triggers ensureBackendDetected()
+        LinuxLoginBackend dm = detector.detectedBackend();
+        s.message = new MessageBackendLinuxDBus(dm, parent);
+    } else {
         s.message = new MessageBackendLinux(parent);
+    }
 
 #elif defined(Q_OS_MACOS)
     s.shutdown  = new ShutdownBackendMacOS(parent);

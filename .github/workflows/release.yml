@@ -171,12 +171,38 @@ jobs:
           cp -r packaging/deb $PKG
           sed -i "s/^Version:.*/Version: ${DEB_VERSION}/" $PKG/DEBIAN/control
 
+          # Main executable
           mkdir -p $PKG/usr/bin
           cp build/ShutdownTimer $PKG/usr/bin/ShutdownTimer
 
+          # Privileged helper binary
+          mkdir -p $PKG/usr/libexec
+          cp build/shutdowntimer-helper $PKG/usr/libexec/shutdowntimer-helper
+
+          # D-Bus system bus config and service activation file
+          mkdir -p $PKG/etc/dbus-1/system.d
+          cp linux/dbus/org.fakylab.ShutdownTimerHelper.conf \
+             $PKG/etc/dbus-1/system.d/
+
+          mkdir -p $PKG/usr/share/dbus-1/system-services
+          cp linux/dbus/org.fakylab.ShutdownTimerHelper.service \
+             $PKG/usr/share/dbus-1/system-services/
+
+          # PolicyKit action
+          mkdir -p $PKG/usr/share/polkit-1/actions
+          cp linux/polkit/org.fakylab.shutdowntimer.policy \
+             $PKG/usr/share/polkit-1/actions/
+
+          # systemd service for the helper
+          mkdir -p $PKG/lib/systemd/system
+          cp linux/systemd/shutdowntimer-helper.service \
+             $PKG/lib/systemd/system/
+
+          # Translations
           mkdir -p $PKG/usr/share/shutdowntimer/i18n
           cp build/i18n/*.qm $PKG/usr/share/shutdowntimer/i18n/
 
+          # Icons
           for size in 16 24 32 48 64 128 256; do
             mkdir -p $PKG/usr/share/icons/hicolor/${size}x${size}/apps
           done

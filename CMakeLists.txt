@@ -284,7 +284,7 @@ if(UNIX AND NOT APPLE)
                 ${POLKIT_CFLAGS_OTHER}
             )
             install(TARGETS shutdowntimer-helper
-                RUNTIME DESTINATION libexec)
+                RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
             install(FILES
                 linux/dbus/org.fakylab.ShutdownTimerHelper.conf
                 DESTINATION /etc/dbus-1/system.d)

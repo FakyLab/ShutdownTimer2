@@ -1,11 +1,13 @@
 #include "MessageBackendLinuxDBus.h"
+#include "MessageBackendLinux.h"   // for LinuxLoginBackend enum
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
 
-MessageBackendLinuxDBus::MessageBackendLinuxDBus(QObject* parent)
+MessageBackendLinuxDBus::MessageBackendLinuxDBus(LinuxLoginBackend dm, QObject* parent)
     : IMessageBackend(parent)
+    , m_dm(dm)
 {}
 
 // Non-blocking check — reads the activatable services list cached by dbus-daemon.
@@ -31,13 +33,25 @@ bool MessageBackendLinuxDBus::isHelperAvailable()
 
 bool MessageBackendLinuxDBus::write(const StartupMessage& msg)
 {
+    // Resolve the DM type from the detected backend so the helper doesn't
+    // have to re-run systemctl detection on every write call.
+    QString dmHint;
+    switch (m_dm) {
+        case LinuxLoginBackend::SDDM:         dmHint = "sddm";    break;
+        case LinuxLoginBackend::PLM:          dmHint = "sddm";    break;
+        case LinuxLoginBackend::LightDM:      dmHint = "lightdm"; break;
+        case LinuxLoginBackend::LightDMSlick: dmHint = "none";    break;
+        case LinuxLoginBackend::GDM:          dmHint = "gdm";     break;
+        default:                              dmHint = "auto";    break;
+    }
+
     QDBusMessage call = QDBusMessage::createMethodCall(
         QLatin1String(kService),
         QLatin1String(kPath),
         QLatin1String(kInterface),
         QLatin1String("WriteMessage")
     );
-    call << msg.title << msg.body;
+    call << msg.title << msg.body << dmHint;
 
     QDBusMessage reply = QDBusConnection::systemBus().call(call);
     if (reply.type() == QDBusMessage::ErrorMessage) {

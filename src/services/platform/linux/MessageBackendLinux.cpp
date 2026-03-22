@@ -1,11 +1,11 @@
 #include "MessageBackendLinux.h"
 
 #include <QFile>
+#include <QTemporaryFile>
 #include <QTextStream>
 #include <QProcess>
 #include <QFileInfo>
 #include <QDir>
-#include <QCoreApplication>
 
 MessageBackendLinux::MessageBackendLinux(QObject* parent)
     : IMessageBackend(parent)
@@ -328,9 +328,24 @@ bool MessageBackendLinux::clearGDM()
 // -- Public interface --
 
 // -- Privilege elevation via pkexec --
-// Called when direct write fails (permission denied).
-// pkexec shows the system password dialog and re-runs the app with
-// the --write-message or --clear-message headless argument as root.
+//
+// The naive approach of re-running the app via pkexec breaks when running
+// from an AppImage: pkexec runs the process outside the user's FUSE session,
+// so the squashfs mount is inaccessible to the root process.
+//
+// Fix: write a temporary shell script to /tmp that performs all the file
+// operations using standard system tools, then pkexec that script.
+// The script needs no Qt, no AppImage, no FUSE — just bash, tee, mkdir, dconf.
+// /tmp is always writable by the user and executable by root.
+
+// Shell-safe quoting: wraps value in single quotes, escaping internal ' with '\''
+static QString shq(const QString& s)
+{
+    QString escaped = s;
+    escaped.replace("'", "'\\''");
+    return "'" + escaped + "'";
+}
+
 bool MessageBackendLinux::runWithPkexec(const QStringList& args)
 {
     // Check pkexec is available
@@ -342,13 +357,118 @@ bool MessageBackendLinux::runWithPkexec(const QStringList& args)
         return false;
     }
 
-    QString exePath = QCoreApplication::applicationFilePath();
-    QStringList pkexecArgs;
-    pkexecArgs << exePath << args;
+    // Parse the args to determine what operation to perform
+    // Supported: --write-message --title T --body B --dm DM
+    //            --clear-message
+    bool isWrite = (!args.isEmpty() && args[0] == "--write-message");
+    bool isClear = (!args.isEmpty() && args[0] == "--clear-message");
+
+    if (!isWrite && !isClear) {
+        m_lastError = tr("Unknown pkexec operation.");
+        return false;
+    }
+
+    // Build a shell script that performs all privileged file operations.
+    // This script runs as root via pkexec but needs no AppImage or Qt.
+    QStringList script;
+    script << "#!/bin/sh";
+    script << "set -e";
+
+    if (isWrite) {
+        // Parse --title, --body, --dm from args
+        QString title, body, dm;
+        for (int i = 1; i < args.size(); i++) {
+            if (args[i] == "--title") title = args[++i];
+            else if (args[i] == "--body")  body  = args[++i];
+            else if (args[i] == "--dm")    dm    = args[++i];
+        }
+
+        // --- /etc/issue ---
+        // Preserve existing content, insert our marked block
+        script << "BEGIN_MARKER='# --- ShutdownTimer message begin ---'";
+        script << "END_MARKER='# --- ShutdownTimer message end ---'";
+        script << "ISSUE_FILE='/etc/issue'";
+        script << "if [ -f \"$ISSUE_FILE\" ]; then";
+        script << "  EXISTING=$(sed \"/$BEGIN_MARKER/,/$END_MARKER/d\" \"$ISSUE_FILE\" | sed '/^[[:space:]]*$/d')";
+        script << "else";
+        script << "  EXISTING=''";
+        script << "fi";
+        script << "{ [ -n \"$EXISTING\" ] && printf '%s\\n\\n' \"$EXISTING\"; "
+                  "printf '%s\\n' \"$BEGIN_MARKER\"; "
+                  + (title.isEmpty() ? QString() : QString("printf '%s\\n' %1; ").arg(shq(title)))
+                  + (body.isEmpty()  ? QString() : QString("printf '%s\\n' %1; ").arg(shq(body)))
+                  + "printf '%s\\n' \"$END_MARKER\"; } > \"$ISSUE_FILE\"";
+
+        // --- DM-specific config ---
+        if (dm == "sddm") {
+            QString combined = title.isEmpty() ? body
+                : (body.isEmpty() ? title : title + " \xe2\x80\x94 " + body);
+            script << "mkdir -p /etc/sddm.conf.d";
+            script << QString("printf '[General]\\nWelcomeMessage=%1\\n' > "
+                              "/etc/sddm.conf.d/shutdown-timer-msg.conf").arg(shq(combined));
+        } else if (dm == "lightdm") {
+            QString combined = title.isEmpty() ? body
+                : (body.isEmpty() ? title : title + "\n" + body);
+            script << "mkdir -p /etc/lightdm/lightdm.conf.d";
+            script << QString("printf '[greeter]\\nbanner-message-enable=true\\n"
+                              "banner-message-text=%1\\n' > "
+                              "/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf").arg(shq(combined));
+        } else if (dm == "gdm") {
+            QString combined = title.isEmpty() ? body
+                : (body.isEmpty() ? title : title + "\n" + body);
+            script << "mkdir -p /etc/dconf/profile /etc/dconf/db/gdm.d";
+            script << "if ! grep -q 'system-db:gdm' /etc/dconf/profile/gdm 2>/dev/null; then";
+            script << "  printf 'system-db:gdm\\n' >> /etc/dconf/profile/gdm";
+            script << "fi";
+            // Store the value in a shell variable to avoid nested quoting.
+            // dconf key-file values are single-quoted strings.
+            // We assign to a variable then substitute into the printf.
+            script << QString("DCONF_VAL=%1").arg(shq(combined));
+            script << "printf '[org/gnome/login-screen]\\n"
+                      "banner-message-enable=true\\n"
+                      "banner-message-text=\\'%s\\'\\n' \"$DCONF_VAL\" "
+                      "> /etc/dconf/db/gdm.d/01-banner-message";
+            script << "dconf update";
+        }
+
+    } else { // isClear
+        script << "BEGIN_MARKER='# --- ShutdownTimer message begin ---'";
+        script << "END_MARKER='# --- ShutdownTimer message end ---'";
+        script << "if [ -f /etc/issue ]; then";
+        script << "  sed -i \"/$BEGIN_MARKER/,/$END_MARKER/d\" /etc/issue";
+        script << "fi";
+        script << "rm -f /etc/sddm.conf.d/shutdown-timer-msg.conf";
+        script << "rm -f /etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf";
+        script << "rm -f /etc/dconf/db/gdm.d/01-banner-message";
+        script << "dconf update 2>/dev/null || true";
+    }
+
+    // Write the script to a randomly-named temp file.
+    // Random name prevents targeting; owner-only permissions (700) prevent
+    // another process running as the same user from reading or replacing it
+    // between write and execution — closing the race window.
+    QTemporaryFile tmpFile(QDir::tempPath() + "/shutdowntimer_XXXXXX.sh");
+    tmpFile.setAutoRemove(false); // we remove it manually after pkexec
+    if (!tmpFile.open()) {
+        m_lastError = tr("Cannot create temp script: %1").arg(tmpFile.errorString());
+        return false;
+    }
+    QString scriptPath = tmpFile.fileName();
+    {
+        QTextStream out(&tmpFile);
+        for (const QString& line : script)
+            out << line << "\n";
+        tmpFile.close();
+        // chmod 700 — owner read/write/execute only, no access for group or others
+        tmpFile.setPermissions(
+            QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    }
 
     QProcess proc;
-    proc.start("pkexec", pkexecArgs);
-    proc.waitForFinished(30000); // 30s for user to enter password
+    proc.start("pkexec", QStringList{"/bin/sh", scriptPath});
+    proc.waitForFinished(30000);
+    QFile::remove(scriptPath);
+
     if (proc.exitCode() != 0) {
         QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
         m_lastError = err.isEmpty()

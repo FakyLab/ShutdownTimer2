@@ -2,13 +2,11 @@
 
 A cross-platform desktop utility for scheduling system shutdowns, restarts, hibernation, and sleep — and displaying a custom message on the login screen before users log in.
 
-
-
 ---
 
 ## Screenshots
 
-| ShutdownTimer Interface | Startup Message Tab |
+| Timer Tab | Startup Message Tab |
 |:---------:|:-------------------:|
 | ![Timer Tab](screenshots/screenshot_timer.png) | ![Startup Message Tab](screenshots/screenshot_message.png) |
 
@@ -20,60 +18,31 @@ A cross-platform desktop utility for scheduling system shutdowns, restarts, hibe
 - **Scheduled Time** — Pick an exact date and time for the action using a calendar picker.
 - **Shutdown, Restart, Hibernate, or Sleep** — Choose what happens when the timer fires. Shutdown and Restart support an optional *Force* mode that closes apps immediately without waiting for them to save. Hibernate and Sleep options are automatically greyed out if the machine doesn't support them, with a tooltip explaining why.
 - **Live Countdown Display** — A large clock shows the remaining time while the timer is active. The system tray icon tooltip also updates in real time.
-- **Startup Message** — Write a custom title and message body that will appear on the login screen. On Windows this uses `LegalNoticeCaption` / `LegalNoticeText` registry values. On macOS it uses `/Library/Security/PolicyBanner.txt`. On Linux it writes to the detected display manager config (SDDM, LightDM) and always to `/etc/issue` as a universal fallback.
+- **Startup Message** — Write a custom title and message body that will appear on the login screen. Uses the platform's native mechanism on each OS (see Platform Notes below).
 - **Auto-Clear Message** — Optionally schedule the startup message to automatically remove itself after the next login.
 - **System Tray** — The app minimizes to the system tray. Closing the window hides it rather than quitting. A tray menu lets you show/hide, cancel a running timer, or quit.
 - **9 Languages** — English, Arabic (with RTL layout), Korean, Spanish, French, German, Portuguese (Brazil), Chinese Simplified, and Japanese. Language preference is saved between sessions.
 - **Persistent Settings** — Window position, size, and language are all remembered across restarts.
-- **Cross-platform** — Windows 10/11, Linux (SDDM/LightDM/GDM), and macOS.
+- **Cross-platform** — Windows 10/11, Linux (SDDM / LightDM / GDM / PLM), and macOS 12+.
+
+---
+
+## Downloads
+
+Pre-built packages are available on the [Releases](https://github.com/FakyLab/ShutdownTimer/releases) page:
+
+| Platform | Package |
+|----------|---------|
+| Windows 10/11 (64-bit) | Portable ZIP |
+| Linux x86\_64 | AppImage, .deb |
+| macOS Intel (x86\_64) | DMG, ZIP |
+| macOS Apple Silicon (arm64) | DMG, ZIP |
 
 ---
 
 ## Architecture
 
-This project follows **MVC (Model-View-Controller)** principles with a modular, platform-abstracted design.
-
-```
-src/
-├── app/
-│   └── main.cpp                        Entry point — wires all layers together
-│
-├── core/
-│   ├── TimerEngine.*                   Drift-corrected countdown/scheduled timer
-│   └── LanguageManager.*               QTranslator + RTL switching
-│
-├── models/
-│   ├── TimerModel.*                    Timer state (mode, action, remaining, running)
-│   ├── MessageModel.*                  Startup message state
-│   └── AppSettingsModel.*              Persistent settings (language, geometry)
-│
-├── controllers/
-│   ├── TimerController.*               Drives TimerEngine, calls shutdown backend
-│   ├── MessageController.*             Reads/writes message via backend
-│   └── SettingsController.*            Applies language, saves geometry
-│
-├── views/
-│   ├── MainWindow.*                    Thin shell — tabs, menu bar, tray
-│   ├── TimerView.*                     Timer tab UI — emits signals only
-│   └── MessageView.*                   Message tab UI — emits signals only
-│
-└── services/
-    ├── interfaces/
-    │   ├── IShutdownBackend.h          Pure virtual: scheduleShutdown / cancel
-    │   ├── IMessageBackend.h           Pure virtual: read / write / clear
-    │   └── IAutoClearBackend.h         Pure virtual: schedule / cancel / exists
-    ├── platform/
-    │   ├── windows/                    Win32 + Registry + COM Task Scheduler
-    │   ├── linux/                      systemctl + /etc/issue + SDDM/LightDM + systemd
-    │   └── macos/                      osascript/pmset + PolicyBanner + LaunchAgent
-    └── PlatformServiceFactory.*        Picks correct backends at compile time
-```
-
-**Key design principles:**
-- Views never call controllers directly — they only emit signals
-- Controllers never import Qt widget headers — only `QObject` and signals/slots
-- All platform code is isolated behind pure virtual interfaces
-- `main.cpp` is the only place that knows about all layers simultaneously
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full MVC structure, layer interaction diagrams, platform backend selection logic, and Linux privileged helper design.
 
 ---
 
@@ -86,58 +55,87 @@ When you click **Start**, `TimerController` validates the input and delegates to
 ### Shutdown Backend
 
 - **Windows** — `InitiateSystemShutdownExW` for Shutdown/Restart; `SetSuspendState` for Hibernate/Sleep. Acquires `SE_SHUTDOWN_NAME` privilege first.
-- **Linux** — `systemctl hibernate/suspend` for sleep states; `shutdown --poweroff/--reboot` with a delay for Shutdown/Restart.
-- **macOS** — `osascript` for sleep; `pmset sleepnow` for hibernate; `shutdown -h/-r` for Shutdown/Restart.
+- **Linux** — `systemctl hibernate/suspend` for sleep states; `shutdown --poweroff/--reboot` for Shutdown/Restart.
+- **macOS** — `pmset sleepnow` for Sleep and Hibernate; `shutdown -h/-r` for Shutdown/Restart.
 
 ### Startup Message
 
-The message is written to the platform-appropriate location:
+The message is written to the platform-appropriate location using the platform's native API:
 
-| Platform | Location |
-|----------|----------|
-| Windows | `HKLM\...\Winlogon` `LegalNoticeCaption` / `LegalNoticeText` |
-| macOS | `/Library/Security/PolicyBanner.txt` |
-| Linux (SDDM) | `/etc/sddm.conf.d/shutdown-timer-msg.conf` + `/etc/issue` |
-| Linux (LightDM) | `/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf` + `/etc/issue` |
-| Linux (GDM / other) | `/etc/issue` only (GDM has no native banner support) |
+| Platform | Mechanism |
+|----------|-----------|
+| Windows | `HKLM\...\Winlogon` `LegalNoticeCaption` / `LegalNoticeText` (registry) |
+| macOS | `loginwindow LoginwindowText` preference (primary) + `/Library/Security/PolicyBanner.txt/.rtf` (secondary) |
+| Linux (.deb / AUR) | D-Bus → privileged helper → polkit authentication |
+| Linux (AppImage) | pkexec shell script (password prompt per operation) |
 
-**Auto-Clear** schedules a one-shot task that runs `ShutdownTimer --auto-clear` headlessly at next login, clears all written locations, removes the task itself, and exits.
+On Linux, the message is written to `/etc/issue` as a universal TTY fallback, and to the active display manager's config:
 
-| Platform | Auto-clear mechanism |
-|----------|---------------------|
-| Windows | COM `ITaskService` — ONLOGON task |
+| Display Manager | Config written |
+|-----------------|----------------|
+| SDDM / PLM (KDE) | `/etc/sddm.conf.d/shutdown-timer-msg.conf` |
+| LightDM GTK | `/etc/lightdm/lightdm.conf.d/shutdown-timer-msg.conf` |
+| LightDM Slick (Linux Mint) | `/etc/issue` only — slick-greeter has no text banner support |
+| GDM (GNOME) | `/etc/dconf/db/gdm.d/01-banner-message` + `dconf update` |
+
+### Auto-Clear
+
+Schedules a one-shot task that runs `ShutdownTimer --auto-clear` headlessly at next login, clears all written locations, removes the task itself, and exits.
+
+| Platform | Mechanism |
+|----------|-----------|
+| Windows | COM `ITaskService` — ONLOGON scheduled task |
 | Linux | systemd user service (`shutdown-timer-autoclear.service`) |
 | macOS | LaunchAgent plist (`com.fakylab.shutdowntimer.autoclear`) |
 
-> **Note:** The app requires **administrator privileges** on all platforms for registry/filesystem writes and shutdown API access.
+---
+
+## Platform Notes
+
+### Windows
+
+- Writing to `HKLM\...\Winlogon` requires administrator privileges. The app requests elevation via UAC when needed.
+- The auto-clear task runs with the highest available privilege at next login to clear the registry values.
+- Hibernate and Sleep availability are detected at startup via `GetPwrCapabilities`.
+
+### Linux
+
+**The install method affects the privilege experience:**
+
+- **`.deb` / AUR install** — A privileged D-Bus helper (`shutdowntimer-helper`) is installed at `/usr/libexec/`. It handles all root file writes and is protected by a PolicyKit action (`org.fakylab.shutdowntimer.write-message`). The password is requested **once per session** (`auth_admin_keep`) — you can save and update the login message multiple times without being asked again.
+
+- **AppImage** — No system-level helper is installed. The app falls back to generating a shell script and running it via `pkexec`. A password prompt appears **on each save or clear** operation. All functionality is identical; only the authentication frequency differs.
+
+Other notes:
+- Display manager (SDDM / PLM / LightDM / GDM) is detected at runtime via `systemctl is-active`.
+- The auto-clear feature uses a **systemd user service** — requires systemd (Ubuntu 16.04+, Fedora, Arch, etc.).
+- GDM support writes a dconf banner key; `/etc/issue` is always written as a TTY fallback regardless of DM.
+
+### macOS
+
+- The app is **ad-hoc signed** — not notarized with Apple. On first launch, macOS may show a security warning. To open it: **right-click the app → Open**, then click **Open** in the dialog. After the first launch it opens normally.
+- Writing the login screen message requires administrator access. A native macOS password dialog is shown when needed.
+- The primary login message mechanism is `loginwindow LoginwindowText` (appears as a subtitle on the login screen). PolicyBanner files (`.txt` and `.rtf`) are also written for legal/compliance banner use cases.
+- Sleep is always available; hibernate availability depends on `pmset hibernatemode`.
+- Auto-clear uses a LaunchAgent at `~/Library/LaunchAgents/`.
 
 ---
 
 ## Building from Source
 
+See [BUILDING.md](BUILDING.md) for full instructions. Quick reference:
+
 ### Prerequisites
 
-| Tool | Version | All platforms |
-|------|---------|--------------|
-| Qt6 + toolchain | 6.5 or newer | https://www.qt.io/download-qt-installer |
-| CMake | 3.20 or newer | https://cmake.org/download |
+| Tool | Version |
+|------|---------|
+| Qt6 (including Linguist tools) | 6.5 or newer |
+| CMake | 3.20 or newer |
+| C++ compiler (C++17) | GCC / Clang / MSVC |
 
-**Windows:** MinGW 64-bit toolchain + Qt Linguist tools component.
-**Linux:** GCC/Clang, `libqt6-dev` or equivalent, `cmake`.
-**macOS:** Xcode Command Line Tools, Qt6 via Homebrew or installer.
+**Linux only:** `libglib2.0-dev` and `libpolkit-gobject-1-dev` are required to build the privileged D-Bus helper. If not found at configure time, the helper is skipped and the app still builds and works fully (using the AppImage-style pkexec fallback instead).
 
----
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/FakyLab/ShutdownTimer.git
-cd ShutdownTimer
-```
-
----
-
-### 2. Configure and build
+### Build
 
 **Windows (Qt MinGW prompt):**
 ```bat
@@ -145,47 +143,30 @@ cmake -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-**Linux / macOS:**
+**Linux:**
 ```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+**macOS:**
+```bash
+export CMAKE_PREFIX_PATH=$(brew --prefix qt6)   # if using Homebrew Qt
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-The compiled binary will be at `build/ShutdownTimer` (or `build/ShutdownTimer.exe` on Windows).
-
----
-
-### 3. Deploy Qt runtime (Windows only)
-
-```bat
-mkdir deploy
-windeployqt --dir deploy build\ShutdownTimer.exe
-copy build\ShutdownTimer.exe deploy\
-xcopy /E /I build\i18n deploy\i18n
-```
-
----
-
-## Platform Notes
-
-### Linux
-- Requires root (or `sudo`) for writing to `/etc/issue`, `/etc/sddm.conf.d/`, `/etc/lightdm/`, and calling `shutdown`.
-- The auto-clear feature uses a **systemd user service** — requires systemd (Ubuntu 16.04+, Fedora, Arch, etc.).
-- Display manager (SDDM/LightDM/GDM) is detected at runtime via `systemctl is-active`.
-- GDM has no native login banner support — only `/etc/issue` is written on GDM systems.
-
-### macOS
-- Requires root for writing to `/Library/Security/PolicyBanner.txt` and calling `shutdown`.
-- Sleep is always available; hibernate depends on `pmset hibernatemode`.
-- Auto-clear uses a LaunchAgent at `/Library/LaunchAgents/`.
+To clean the build: `rm -rf build`
 
 ---
 
 ## Requirements
 
-- **Windows** 10 or 11 (64-bit) + Administrator privileges
-- **Linux** — any modern distro with systemd + root access
-- **macOS** 12 Monterey or newer + root access
+| Platform | Minimum version | Notes |
+|----------|----------------|-------|
+| Windows | 10 (64-bit) | Administrator account required |
+| Linux | Any modern distro with systemd | Root access via pkexec or polkit |
+| macOS | 12 Monterey | Administrator account required |
 
 ---
 
