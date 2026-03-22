@@ -107,8 +107,13 @@ jobs:
           cp assets/shutdown64px.png  AppDir/usr/share/icons/hicolor/64x64/apps/org.fakylab.ShutdownTimer.png
           cp assets/shutdown128px.png AppDir/usr/share/icons/hicolor/128x128/apps/org.fakylab.ShutdownTimer.png
           cp assets/shutdown256px.png AppDir/usr/share/icons/hicolor/256x256/apps/org.fakylab.ShutdownTimer.png
-          # Root-level icon required by linuxdeployqt
-          cp assets/shutdown256px.png AppDir/org.fakylab.ShutdownTimer.png
+          mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps
+          cp assets/shutdown512px.png AppDir/usr/share/icons/hicolor/512x512/apps/org.fakylab.ShutdownTimer.png
+          # Root-level icon required by linuxdeployqt (must match Icon= in .desktop)
+          cp assets/shutdown512px.png AppDir/org.fakylab.ShutdownTimer.png
+          # .DirIcon is the icon embedded in the AppImage squashfs for file managers
+          # and application launchers to display without mounting the AppImage.
+          cp assets/shutdown512px.png AppDir/.DirIcon
           mkdir -p AppDir/usr/share/doc/shutdowntimer
           cp LICENSE.txt AppDir/usr/share/doc/shutdowntimer/copyright
           cp packaging/appimage/AppRun AppDir/AppRun
@@ -247,32 +252,24 @@ jobs:
           cp LICENSE.txt "$APP/Contents/Resources/"
           mkdir -p "$APP/Contents/Resources/i18n"
           find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
+          # Copy icon.icns into the bundle — referenced by CFBundleIconFile=icon in Info.plist.
+          # Must happen BEFORE codesign — modifying the bundle after signing invalidates it.
+          cp assets/icon.icns "$APP/Contents/Resources/icon.icns"
+          # Strip quarantine xattr BEFORE signing. If quarantine is present on the
+          # bundle when we sign it, Gatekeeper sees an ad-hoc-signed quarantined app
+          # and shows "app is damaged" instead of letting it run.
+          xattr -cr "$APP"
 
       - name: Ad-hoc code sign
         run: |
+          # Sign AFTER all bundle contents are finalised and quarantine is stripped.
           # Ad-hoc signing (-) requires no Developer account or certificate.
-          # It satisfies Gatekeeper's requirement that downloaded apps be signed,
-          # preventing "app is not supported" / "app is damaged" on macOS 15.1+.
           # --deep signs all nested frameworks and dylibs bundled by macdeployqt.
           # --force re-signs any components already signed by macdeployqt itself.
           APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
           codesign --deep --force --sign - "$APP"
           echo "Signed: $APP"
           codesign --verify --verbose "$APP"
-
-      - name: Generate .icns from PNG assets
-        run: |
-          mkdir -p icon.iconset
-          sips -z 16  16  assets/shutdown256px.png --out icon.iconset/icon_16x16.png
-          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_16x16@2x.png
-          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_32x32.png
-          sips -z 64  64  assets/shutdown256px.png --out icon.iconset/icon_32x32@2x.png
-          sips -z 128 128 assets/shutdown256px.png --out icon.iconset/icon_128x128.png
-          sips -z 256 256 assets/shutdown256px.png --out icon.iconset/icon_128x128@2x.png
-          cp assets/shutdown256px.png icon.iconset/icon_256x256.png
-          iconutil -c icns icon.iconset -o assets/icon.icns
-          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
-          cp assets/icon.icns "$APP/Contents/Resources/"
 
       - name: Build .dmg
         run: |
@@ -289,12 +286,15 @@ jobs:
             "ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.dmg" \
             "$APP"
 
-      - name: Build .zip as fallback
+      - name: Build .zip
         run: |
           APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
           APPDIR=$(dirname "$APP")
-          cd "$APPDIR"
-          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.zip" ShutdownTimer.app
+          # Use ditto instead of zip — ditto preserves code signatures and resource forks.
+          # Plain zip can corrupt extended attributes and break Gatekeeper verification.
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$APP" \
+            "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.zip"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
@@ -349,32 +349,24 @@ jobs:
           cp LICENSE.txt "$APP/Contents/Resources/"
           mkdir -p "$APP/Contents/Resources/i18n"
           find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
+          # Copy icon.icns into the bundle — referenced by CFBundleIconFile=icon in Info.plist.
+          # Must happen BEFORE codesign — modifying the bundle after signing invalidates it.
+          cp assets/icon.icns "$APP/Contents/Resources/icon.icns"
+          # Strip quarantine xattr BEFORE signing. If quarantine is present on the
+          # bundle when we sign it, Gatekeeper sees an ad-hoc-signed quarantined app
+          # and shows "app is damaged" instead of letting it run.
+          xattr -cr "$APP"
 
       - name: Ad-hoc code sign
         run: |
+          # Sign AFTER all bundle contents are finalised and quarantine is stripped.
           # Ad-hoc signing (-) requires no Developer account or certificate.
-          # It satisfies Gatekeeper's requirement that downloaded apps be signed,
-          # preventing "app is not supported" / "app is damaged" on macOS 15.1+.
           # --deep signs all nested frameworks and dylibs bundled by macdeployqt.
           # --force re-signs any components already signed by macdeployqt itself.
           APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
           codesign --deep --force --sign - "$APP"
           echo "Signed: $APP"
           codesign --verify --verbose "$APP"
-
-      - name: Generate .icns from PNG assets
-        run: |
-          mkdir -p icon.iconset
-          sips -z 16  16  assets/shutdown256px.png --out icon.iconset/icon_16x16.png
-          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_16x16@2x.png
-          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_32x32.png
-          sips -z 64  64  assets/shutdown256px.png --out icon.iconset/icon_32x32@2x.png
-          sips -z 128 128 assets/shutdown256px.png --out icon.iconset/icon_128x128.png
-          sips -z 256 256 assets/shutdown256px.png --out icon.iconset/icon_128x128@2x.png
-          cp assets/shutdown256px.png icon.iconset/icon_256x256.png
-          iconutil -c icns icon.iconset -o assets/icon.icns
-          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
-          cp assets/icon.icns "$APP/Contents/Resources/"
 
       - name: Build .dmg
         run: |
@@ -391,12 +383,14 @@ jobs:
             "ShutdownTimer-${{ github.ref_name }}-macOS-arm64.dmg" \
             "$APP"
 
-      - name: Build .zip as fallback
+      - name: Build .zip
         run: |
           APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
-          APPDIR=$(dirname "$APP")
-          cd "$APPDIR"
-          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-arm64.zip" ShutdownTimer.app
+          # Use ditto instead of zip — ditto preserves code signatures and resource forks.
+          # Plain zip can corrupt extended attributes and break Gatekeeper verification.
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$APP" \
+            "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-arm64.zip"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
