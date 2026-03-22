@@ -46,9 +46,26 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-  build-macos:
-    name: macOS (Qt6 Clang)
-    runs-on: macos-latest
+  build-macos-x64:
+    name: macOS x86_64 (Intel)
+    runs-on: macos-13      # last Intel runner
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+
+  build-macos-arm64:
+    name: macOS arm64 (Apple Silicon)
+    runs-on: macos-14      # Apple Silicon runner
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt6

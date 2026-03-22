@@ -363,15 +363,18 @@ bool MessageBackendLinux::write(const StartupMessage& msg)
 {
     ensureBackendDetected();
 
-    // Try direct write first (succeeds if already root or file is writable)
-    bool ok = writeEtcIssue(msg);
-    if (!ok) {
-        // Permission denied — use pkexec to elevate.
-        // Pass DM type so the headless handler also writes DM config.
+    // Try direct write first (succeeds if running as root).
+    // For normal users /etc/issue and all DM config paths require root,
+    // so both will fail — we elevate via pkexec for the whole operation.
+    bool etcOk = writeEtcIssue(msg);
+    if (!etcOk) {
+        // /etc/issue write failed — elevate the whole operation via pkexec.
+        // The headless --write-message handler writes both /etc/issue AND
+        // the DM-specific config in one elevated call.
         QString dmType;
         switch (m_backend) {
             case LinuxLoginBackend::SDDM:         dmType = "sddm";    break;
-            case LinuxLoginBackend::PLM:          dmType = "sddm";    break; // same config
+            case LinuxLoginBackend::PLM:          dmType = "sddm";    break;
             case LinuxLoginBackend::LightDM:      dmType = "lightdm"; break;
             case LinuxLoginBackend::GDM:          dmType = "gdm";     break;
             case LinuxLoginBackend::LightDMSlick: dmType = "none";    break;
@@ -385,37 +388,72 @@ bool MessageBackendLinux::write(const StartupMessage& msg)
         return runWithPkexec(args);
     }
 
-    // Additionally write to the detected graphical DM
+    // /etc/issue write succeeded (running as root or world-writable).
+    // Now write the DM-specific config. If that also fails (e.g. /etc/issue
+    // was world-writable but /etc/sddm.conf.d/ is not), elevate via pkexec
+    // for the full operation — this re-writes /etc/issue as root too, which
+    // is harmless and keeps the two writes consistent.
+    bool dmOk = true;
     switch (m_backend) {
-        case LinuxLoginBackend::SDDM:         return writeSDDM(msg);
-        case LinuxLoginBackend::PLM:          return writeSDDM(msg); // PLM is SDDM fork, same config
-        case LinuxLoginBackend::LightDM:      return writeLightDM(msg);
-        case LinuxLoginBackend::LightDMSlick: return true; // no graphical banner supported
-        case LinuxLoginBackend::GDM:          return writeGDM(msg);
-        default:                              return true;
+        case LinuxLoginBackend::SDDM:         dmOk = writeSDDM(msg);    break;
+        case LinuxLoginBackend::PLM:          dmOk = writeSDDM(msg);    break;
+        case LinuxLoginBackend::LightDM:      dmOk = writeLightDM(msg); break;
+        case LinuxLoginBackend::LightDMSlick: dmOk = true;              break;
+        case LinuxLoginBackend::GDM:          dmOk = writeGDM(msg);     break;
+        default:                              dmOk = true;              break;
     }
+
+    if (!dmOk) {
+        // DM config write failed despite /etc/issue succeeding.
+        // Elevate the whole operation so both paths are written as root.
+        QString dmType;
+        switch (m_backend) {
+            case LinuxLoginBackend::SDDM:         dmType = "sddm";    break;
+            case LinuxLoginBackend::PLM:          dmType = "sddm";    break;
+            case LinuxLoginBackend::LightDM:      dmType = "lightdm"; break;
+            case LinuxLoginBackend::GDM:          dmType = "gdm";     break;
+            default:                              dmType = "none";    break;
+        }
+        QStringList args;
+        args << "--write-message"
+             << "--title" << msg.title
+             << "--body"  << msg.body
+             << "--dm"    << dmType;
+        return runWithPkexec(args);
+    }
+
+    return true;
 }
 
 bool MessageBackendLinux::clear()
 {
     ensureBackendDetected();
 
-    bool ok = clearEtcIssue();
-    if (!ok) {
-        // Permission denied — use pkexec
+    bool etcOk = clearEtcIssue();
+    if (!etcOk) {
+        // /etc/issue clear failed — elevate the whole clear via pkexec.
+        // --clear-message removes /etc/issue AND all DM configs as root.
         if (!runWithPkexec(QStringList{"--clear-message"})) return false;
         return true;
     }
 
+    // /etc/issue cleared — now clear the DM config.
+    // If that fails, elevate the whole operation (re-clears /etc/issue too,
+    // which is harmless).
+    bool dmOk = true;
     switch (m_backend) {
-        case LinuxLoginBackend::SDDM:         ok &= clearSDDM();    break;
-        case LinuxLoginBackend::PLM:          ok &= clearSDDM();    break; // same config as SDDM
-        case LinuxLoginBackend::LightDM:      ok &= clearLightDM(); break;
-        case LinuxLoginBackend::LightDMSlick: break; // nothing to clear graphically
-        case LinuxLoginBackend::GDM:          ok &= clearGDM();     break;
-        default: break;
+        case LinuxLoginBackend::SDDM:         dmOk = clearSDDM();    break;
+        case LinuxLoginBackend::PLM:          dmOk = clearSDDM();    break;
+        case LinuxLoginBackend::LightDM:      dmOk = clearLightDM(); break;
+        case LinuxLoginBackend::LightDMSlick: dmOk = true;           break;
+        case LinuxLoginBackend::GDM:          dmOk = clearGDM();     break;
+        default:                              dmOk = true;           break;
     }
-    return ok;
+
+    if (!dmOk)
+        return runWithPkexec(QStringList{"--clear-message"});
+
+    return true;
 }
 
 bool MessageBackendLinux::read(StartupMessage& out)

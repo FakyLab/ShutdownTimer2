@@ -201,10 +201,10 @@ jobs:
         with:
           files: ShutdownTimer-${{ github.ref_name }}-Linux-x64.deb
 
-  # ── macOS .dmg + .zip ──────────────────────────────────────────────────────────
-  release-macos:
-    name: macOS — DMG + ZIP
-    runs-on: macos-latest
+  # ── macOS x86_64 (Intel) ───────────────────────────────────────────────────────
+  release-macos-x64:
+    name: macOS — DMG + ZIP (Intel x86_64)
+    runs-on: macos-13      # last Intel runner; macos-14+ are Apple Silicon only
 
     steps:
       - uses: actions/checkout@v4
@@ -236,7 +236,6 @@ jobs:
 
       - name: Deploy Qt runtime into .app bundle
         run: |
-          # Search for the bundle — cmake may place it in build/ or build/Release/
           APP=$(find build -name "ShutdownTimer.app" -type d 2>/dev/null | head -1)
           echo "App bundle: $APP"
           if [ -z "$APP" ]; then
@@ -247,8 +246,6 @@ jobs:
           macdeployqt "$APP"
           cp LICENSE.txt "$APP/Contents/Resources/"
           mkdir -p "$APP/Contents/Resources/i18n"
-          # POST_BUILD copies .qm files next to the binary (MacOS/i18n)
-          # We also need them in Resources/i18n for LanguageManager
           find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
 
       - name: Generate .icns from PNG assets
@@ -277,7 +274,7 @@ jobs:
             --icon "ShutdownTimer.app" 175 190 \
             --hide-extension "ShutdownTimer.app" \
             --app-drop-link 425 190 \
-            "ShutdownTimer-${{ github.ref_name }}-macOS.dmg" \
+            "ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.dmg" \
             "$APP"
 
       - name: Build .zip as fallback
@@ -285,11 +282,101 @@ jobs:
           APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
           APPDIR=$(dirname "$APP")
           cd "$APPDIR"
-          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS.zip" ShutdownTimer.app
+          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.zip" ShutdownTimer.app
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ShutdownTimer-${{ github.ref_name }}-macOS.dmg
-            ShutdownTimer-${{ github.ref_name }}-macOS.zip
+            ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.dmg
+            ShutdownTimer-${{ github.ref_name }}-macOS-x86_64.zip
+
+  # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────────────
+  release-macos-arm64:
+    name: macOS — DMG + ZIP (Apple Silicon arm64)
+    runs-on: macos-14      # macos-14+ = Apple Silicon arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.0'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'    # Qt installer uses clang_64 for both; CMake targets the runner arch
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Find app bundle
+        run: |
+          echo "=== All .app bundles ==="
+          find . -name "*.app" -type d 2>/dev/null || echo "none found"
+          echo "=== Build directory contents ==="
+          ls -la build/
+          ls -la build/Release/ 2>/dev/null || echo "No Release subdir"
+
+      - name: Deploy Qt runtime into .app bundle
+        run: |
+          APP=$(find build -name "ShutdownTimer.app" -type d 2>/dev/null | head -1)
+          echo "App bundle: $APP"
+          if [ -z "$APP" ]; then
+            echo "ERROR: App bundle not found. Build contents:"
+            find build -type f -name "ShutdownTimer*" 2>/dev/null
+            exit 1
+          fi
+          macdeployqt "$APP"
+          cp LICENSE.txt "$APP/Contents/Resources/"
+          mkdir -p "$APP/Contents/Resources/i18n"
+          find build -name "*.qm" -exec cp {} "$APP/Contents/Resources/i18n/" \;
+
+      - name: Generate .icns from PNG assets
+        run: |
+          mkdir -p icon.iconset
+          sips -z 16  16  assets/shutdown256px.png --out icon.iconset/icon_16x16.png
+          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32  32  assets/shutdown256px.png --out icon.iconset/icon_32x32.png
+          sips -z 64  64  assets/shutdown256px.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128 assets/shutdown256px.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256 assets/shutdown256px.png --out icon.iconset/icon_128x128@2x.png
+          cp assets/shutdown256px.png icon.iconset/icon_256x256.png
+          iconutil -c icns icon.iconset -o assets/icon.icns
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          cp assets/icon.icns "$APP/Contents/Resources/"
+
+      - name: Build .dmg
+        run: |
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          create-dmg \
+            --volname "Shutdown Timer" \
+            --volicon "assets/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "ShutdownTimer.app" 175 190 \
+            --hide-extension "ShutdownTimer.app" \
+            --app-drop-link 425 190 \
+            "ShutdownTimer-${{ github.ref_name }}-macOS-arm64.dmg" \
+            "$APP"
+
+      - name: Build .zip as fallback
+        run: |
+          APP=$(find build -name "ShutdownTimer.app" -type d | head -1)
+          APPDIR=$(dirname "$APP")
+          cd "$APPDIR"
+          zip -r "$GITHUB_WORKSPACE/ShutdownTimer-${{ github.ref_name }}-macOS-arm64.zip" ShutdownTimer.app
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ShutdownTimer-${{ github.ref_name }}-macOS-arm64.dmg
+            ShutdownTimer-${{ github.ref_name }}-macOS-arm64.zip
