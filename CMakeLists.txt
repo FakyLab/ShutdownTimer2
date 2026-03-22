@@ -158,7 +158,7 @@ target_include_directories(ShutdownTimer PRIVATE src)
 get_target_property(LRELEASE_EXECUTABLE Qt6::lrelease IMPORTED_LOCATION)
 
 set(TS_FILES
-    i18n/app_en.ts   i18n/app_ar.ts   i18n/app_ko.ts
+    i18n/app_ar.ts   i18n/app_ko.ts
     i18n/app_es.ts   i18n/app_fr.ts   i18n/app_de.ts
     i18n/app_pt_BR.ts i18n/app_zh_CN.ts i18n/app_ja.ts
 )
