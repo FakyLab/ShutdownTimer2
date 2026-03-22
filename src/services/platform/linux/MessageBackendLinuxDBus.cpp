@@ -1,5 +1,6 @@
 #include "MessageBackendLinuxDBus.h"
 #include "MessageBackendLinux.h"   // for LinuxLoginBackend enum
+#include "SlickNotification.h"     // post-login notification for Linux Mint
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -58,11 +59,23 @@ bool MessageBackendLinuxDBus::write(const StartupMessage& msg)
         m_lastError = reply.errorMessage();
         return false;
     }
+
+    // For slick-greeter (Linux Mint): also schedule a post-login desktop
+    // notification since the helper only writes /etc/issue (no DM config).
+    // This file is user-owned — no root needed, not handled by the helper.
+    if (m_dm == LinuxLoginBackend::LightDMSlick)
+        SlickNotification::write(msg);
+
     return true;
 }
 
 bool MessageBackendLinuxDBus::clear()
 {
+    // Always clean up any pending Slick notification first — even if the
+    // D-Bus clear fails, we don't want a stale notification at next login.
+    if (m_dm == LinuxLoginBackend::LightDMSlick)
+        SlickNotification::clear();
+
     QDBusMessage call = QDBusMessage::createMethodCall(
         QLatin1String(kService),
         QLatin1String(kPath),

@@ -23,16 +23,9 @@ QString MessageBackendMacOS::platformDescription() const
 bool MessageBackendMacOS::runElevated(const QString& shellCmd)
 {
     // Write the AppleScript to a temp file and run `osascript <file>`.
-    // shellCmd is embedded inside an AppleScript double-quoted string.
-    // Only \ and " are special inside AppleScript double-quoted strings.
-    // shellCmd is built using shellArgQuote() which double-quotes argument
-    // values and escapes only \ and " — so no conflict between escaping layers.
-    QString appleCmd = shellCmd;
-    // These are the only two chars special in AppleScript double-quoted strings.
-    // shellArgQuote() already escapes these in argument values, but the
-    // structural characters (spaces, &&, ;) pass through unchanged — correct.
-    // No further processing needed: appleCmd is already AppleScript-safe.
-
+    // shellCmd uses single-quote shell escaping (from shellArgQuote) so it
+    // contains no double quotes — safe to embed inside an AppleScript
+    // double-quoted string without any further escaping.
     const QString scriptPath = "/tmp/shutdowntimer_elevate.applescript";
     {
         QFile f(scriptPath);
@@ -41,7 +34,7 @@ bool MessageBackendMacOS::runElevated(const QString& shellCmd)
             return false;
         }
         QTextStream out(&f);
-        out << "do shell script \"" << appleCmd << "\" with administrator privileges\n";
+        out << "do shell script \"" << shellCmd << "\" with administrator privileges\n";
     }
 
     QProcess proc;
@@ -60,17 +53,23 @@ bool MessageBackendMacOS::runElevated(const QString& shellCmd)
 }
 
 // -- shellArgQuote --
-// Wraps a value in double quotes for safe embedding in a shell command,
-// escaping only \ and " — the two characters special inside double-quoted
-// shell strings. This is also safe for embedding in an AppleScript
-// double-quoted string (which has the same two special characters),
-// so no additional escaping layer is needed in runElevated().
+// Wraps a value in single quotes for safe embedding in a shell command
+// that is itself embedded inside an AppleScript double-quoted string.
+//
+// WHY single quotes, not double:
+// The shell command is passed to osascript as:
+//   do shell script "...shellCmd..." with administrator privileges
+// Double quotes inside shellCmd would terminate the AppleScript string early,
+// causing a syntax error. Single quotes are NOT special in AppleScript
+// double-quoted strings, so they pass through cleanly to the shell.
+//
+// Single-quote shell escaping: internal ' → '\''
+// (close quote, escaped quote, reopen quote — standard POSIX pattern)
 static QString shellArgQuote(const QString& s)
 {
     QString escaped = s;
-    escaped.replace("\\", "\\\\");  // \ → \\
-    escaped.replace("\"", "\\\"");  // " → \"
-    return "\"" + escaped + "\"";
+    escaped.replace("'", "'\\''");   // ' → '\''
+    return "'" + escaped + "'";
 }
 
 // -- write --

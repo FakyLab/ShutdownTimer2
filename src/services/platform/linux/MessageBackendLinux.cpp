@@ -6,6 +6,11 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QDir>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QCoreApplication>
+#include "SlickNotification.h"
 
 MessageBackendLinux::MessageBackendLinux(QObject* parent)
     : IMessageBackend(parent)
@@ -80,8 +85,8 @@ QString MessageBackendLinux::platformDescription() const
         case LinuxLoginBackend::LightDM:
             return tr("login screen (LightDM GTK greeter + /etc/issue)");
         case LinuxLoginBackend::LightDMSlick:
-            return tr("/etc/issue only — slick-greeter (Linux Mint) does not support "
-                      "text banners on the graphical login screen");
+            return tr("/etc/issue (TTY) + desktop notification after login "
+                      "— slick-greeter (Linux Mint) has no graphical login banner support");
         case LinuxLoginBackend::GDM:
             return tr("login screen (GDM dconf banner + /etc/issue)");
         default:
@@ -508,7 +513,11 @@ bool MessageBackendLinux::write(const StartupMessage& msg)
              << "--title" << msg.title
              << "--body"  << msg.body
              << "--dm"    << dmType;
-        return runWithPkexec(args);
+        bool ok = runWithPkexec(args);
+        // Schedule post-login notification for Mint regardless of which path was used
+        if (ok && m_backend == LinuxLoginBackend::LightDMSlick)
+            SlickNotification::write(msg);
+        return ok;
     }
 
     // /etc/issue write succeeded (running as root or world-writable).
@@ -545,12 +554,24 @@ bool MessageBackendLinux::write(const StartupMessage& msg)
         return runWithPkexec(args);
     }
 
+    // For slick-greeter (Linux Mint): schedule a post-login desktop notification
+    // since slick-greeter has no text banner support. This fires once after the
+    // user logs in via the XDG autostart mechanism — no root needed.
+    if (m_backend == LinuxLoginBackend::LightDMSlick)
+        SlickNotification::write(msg);
+
     return true;
 }
 
 bool MessageBackendLinux::clear()
 {
     ensureBackendDetected();
+
+    // Always clean up any pending Slick notification — even if the privileged
+    // clear fails, the notification file and autostart entry should be removed
+    // so the user doesn't get a stale notification at next login.
+    if (m_backend == LinuxLoginBackend::LightDMSlick)
+        SlickNotification::clear();
 
     bool etcOk = clearEtcIssue();
     if (!etcOk) {
