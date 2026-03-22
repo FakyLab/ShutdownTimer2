@@ -19,10 +19,13 @@ public:
     virtual bool write(const StartupMessage& msg)   = 0;
     virtual bool clear()                            = 0;
 
-    // Human-readable description of where the message is displayed on this platform.
+    // Human-readable description of where/when the message is displayed.
     // Used in the UI info label so users know what to expect.
-    // e.g. "Windows login screen", "login screen (SDDM config + /etc/issue)", etc.
     virtual QString platformDescription() const     = 0;
+
+    // Returns true if the message is shown AFTER login (notification),
+    // false if shown BEFORE login (login screen). Affects the UI label wording.
+    virtual bool isPostLogin() const                { return false; }
 
     virtual QString lastError() const               = 0;
 };

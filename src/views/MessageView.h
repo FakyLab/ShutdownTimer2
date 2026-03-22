@@ -12,15 +12,16 @@ class MessageView : public QWidget
     Q_OBJECT
 public:
     explicit MessageView(const QString& platformDescription,
-                         QWidget* parent = nullptr);
+                         bool           isPostLogin,
+                         QWidget*       parent = nullptr);
 
-    void buildUI(const QString& platformDescription);
+    void buildUI(const QString& platformDescription, bool isPostLogin);
 
     // Called by MessageController signals
     void displayMessage(const QString& title, const QString& body, bool autoClearActive);
     void showStatus(const QString& msg);
     void clearFields();
-    void retranslate(const QString& platformDescription);
+    void retranslate(const QString& platformDescription, bool isPostLogin);
 
 signals:
     // Emitted to MessageController

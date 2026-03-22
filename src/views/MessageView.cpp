@@ -4,20 +4,26 @@
 #include <QHBoxLayout>
 #include <QFormLayout>
 
-MessageView::MessageView(const QString& platformDescription, QWidget* parent)
+MessageView::MessageView(const QString& platformDescription,
+                         bool           isPostLogin,
+                         QWidget*       parent)
     : QWidget(parent)
 {
-    buildUI(platformDescription);
+    buildUI(platformDescription, isPostLogin);
 }
 
-void MessageView::buildUI(const QString& platformDescription)
+void MessageView::buildUI(const QString& platformDescription, bool isPostLogin)
 {
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setSpacing(10);
 
     m_msgInfoLabel = new QLabel(
-        tr("This message will be shown on the %1 before the user logs in.")
-        .arg(platformDescription), this);
+        isPostLogin
+        ? tr("When saved, this message will be shown as a desktop notification on the %1.")
+            .arg(platformDescription)
+        : tr("This message will be shown on the %1 before the user logs in.")
+            .arg(platformDescription),
+        this);
     m_msgInfoLabel->setWordWrap(true);
     layout->addWidget(m_msgInfoLabel);
 
@@ -116,12 +122,15 @@ void MessageView::clearFields()
     m_msgBodyEdit->clear();
 }
 
-void MessageView::retranslate(const QString& platformDescription)
+void MessageView::retranslate(const QString& platformDescription, bool isPostLogin)
 {
     if (m_msgInfoLabel)
         m_msgInfoLabel->setText(
-            tr("This message will be shown on the %1 before the user logs in.")
-            .arg(platformDescription));
+            isPostLogin
+            ? tr("When saved, this message will be shown as a desktop notification on the %1.")
+                .arg(platformDescription)
+            : tr("This message will be shown on the %1 before the user logs in.")
+                .arg(platformDescription));
     if (m_msgTitleLabel)  m_msgTitleLabel->setText(tr("Title:"));
     if (m_msgBodyLabel)   m_msgBodyLabel->setText(tr("Message:"));
     if (m_msgTitleEdit)

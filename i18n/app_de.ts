@@ -423,7 +423,34 @@ Aktueller Pfad:
     <context>
         <name>MessageBackendLinux</name>
         <message>
-            <source>Linux desktop (shown as a notification after the next login)</source>
+            <source>Linux desktop</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <n>MessageBackendMacOS</n>
+        <message>
+            <source>macOS desktop</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <n>MessageView</n>
+        <message>
+            <source>When saved, this message will be shown as a desktop notification on the %1.</source>
+            <translation type="unfinished" />
+        </message>
+    </context>
+    <context>
+        <n>TimerView</n>
+        <message>
+            <source>Hibernate is not available on this machine.
+Check that your system supports suspend-to-disk.</source>
+            <translation type="unfinished" />
+        </message>
+        <message>
+            <source>Hibernate is not available on this machine.
+It may be enabled via: sudo pmset -a hibernatemode 25</source>
             <translation type="unfinished" />
         </message>
     </context>

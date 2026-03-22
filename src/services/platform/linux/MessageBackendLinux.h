@@ -35,6 +35,7 @@ public:
     bool clear()                          override;
 
     QString platformDescription() const   override;
+    bool    isPostLogin() const           override { return true; }
     QString lastError() const             override { return m_lastError; }
 
     // Path helpers — shared with main.cpp handlers

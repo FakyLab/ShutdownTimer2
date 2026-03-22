@@ -48,7 +48,8 @@ MainWindow::MainWindow(TimerController*    timerCtrl,
 
     // Create views
     m_timerView   = new TimerView(hibernateAvailable, sleepAvailable);
-    m_messageView = new MessageView(m_messageCtrl->platformDescription());
+    m_messageView = new MessageView(m_messageCtrl->platformDescription(),
+                                    m_messageCtrl->isPostLogin());
 
     // Central widget + tabs
     QWidget* central = new QWidget(this);
@@ -433,7 +434,8 @@ void MainWindow::retranslateUI()
     if (m_trayIcon)           m_trayIcon->setToolTip(tr("Shutdown Timer"));
 
     if (m_timerView)   m_timerView->retranslate();
-    if (m_messageView) m_messageView->retranslate(m_messageCtrl->platformDescription());
+    if (m_messageView) m_messageView->retranslate(m_messageCtrl->platformDescription(),
+                                                   m_messageCtrl->isPostLogin());
 }
 
 // -- Single instance --

@@ -14,8 +14,6 @@ AutoClearBackendMacOS::AutoClearBackendMacOS(QObject* parent)
 QString AutoClearBackendMacOS::plistPath() const
 {
     // Use the per-user LaunchAgents directory — no root required.
-    // The --auto-clear handler will need root only to remove PolicyBanner files,
-    // which it requests via osascript/sudo prompt at that point.
     QString home = QDir::homePath();
     return QString("%1/Library/LaunchAgents/%2.plist").arg(home, kAgentLabel);
 }
@@ -68,14 +66,11 @@ bool AutoClearBackendMacOS::schedule()
     out << "</plist>\n";
     file.close();
 
-    // Register with launchctl using modern bootstrap API (replaces deprecated `load`).
-    // `launchctl bootstrap gui/<uid>` registers the agent for the current user session.
-    QString uid = QString::number(getuid());
-    runProcess("launchctl", QStringList{
-        "bootstrap",
-        QString("gui/%1").arg(uid),
-        path
-    });
+    // Do NOT call launchctl bootstrap — writing the plist to
+    // ~/Library/LaunchAgents/ is sufficient. launchd loads all agents
+    // in that directory automatically at the start of the next user session.
+    // Calling bootstrap would fire --auto-clear immediately NOW,
+    // which would clear the message before the user has even logged out.
     return true;
 }
 

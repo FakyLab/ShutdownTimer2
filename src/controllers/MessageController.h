@@ -21,6 +21,10 @@ public:
     // Platform description string for the UI info label
     QString platformDescription() const;
 
+    // True if message is delivered after login (notification),
+    // false if shown on the login screen before login.
+    bool isPostLogin() const;
+
 public slots:
     void onSave(const QString& title, const QString& body, bool autoClear);
     void onClear();

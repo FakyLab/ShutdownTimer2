@@ -42,11 +42,9 @@ QString MessageBackendLinux::autostartDesktopPath()
 
 QString MessageBackendLinux::platformDescription() const
 {
-    // This string is inserted into the UI label:
-    // "This message will be shown on the %1 before the user logs in."
-    // For Linux the timing differs — it shows after login as a notification.
-    // We return a self-contained description that makes sense in that slot.
-    return tr("Linux desktop (shown as a notification after the next login)");
+    // Used in the UI label (see MessageView):
+    //   "When saved, this message will be shown as a desktop notification on the %1."
+    return tr("Linux desktop");
 }
 
 bool MessageBackendLinux::write(const StartupMessage& msg)

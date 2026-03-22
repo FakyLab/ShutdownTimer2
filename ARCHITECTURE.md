@@ -38,7 +38,7 @@ src/
     ├── platform/
     │   ├── windows/                    Win32 + Registry + COM Task Scheduler
     │   ├── linux/                      systemctl + ~/.config/ message file + XDG autostart
-    │   └── macos/                      pmset + defaults + PolicyBanner + LaunchAgent
+    │   └── macos/                      pmset + osascript + LaunchAgent notification
     └── PlatformServiceFactory.*        Picks correct backends at runtime/compile time
 ```
 
@@ -95,8 +95,8 @@ PlatformServiceFactory::create()
 │               (no root required — fully unprivileged)
 │
 └── macOS
-    ├── ShutdownBackendMacOS     (pmset / shutdown)
-    ├── MessageBackendMacOS      (loginwindow defaults + PolicyBanner)
+    ├── ShutdownBackendMacOS     (pmset / shutdown — osascript elevation for force mode)
+    ├── MessageBackendMacOS      (LaunchAgent + osascript display notification — no root)
     └── AutoClearBackendMacOS    (LaunchAgent plist)
 ```
 

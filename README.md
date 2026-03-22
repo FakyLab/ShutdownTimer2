@@ -65,7 +65,7 @@ The message is written to the platform-appropriate location using the platform's
 | Platform | Mechanism |
 |----------|-----------|
 | Windows | `HKLM\...\Winlogon` `LegalNoticeCaption` / `LegalNoticeText` (registry) |
-| macOS | `loginwindow LoginwindowText` preference (primary) + `/Library/Security/PolicyBanner.txt/.rtf` (secondary) |
+| macOS | XDG-style LaunchAgent + `osascript display notification` — **no root required** |
 | Linux | XDG autostart + `notify-send` desktop notification — **no root required** |
 
 On Linux, the message is saved to `~/.config/shutdowntimer/message.json` and an XDG autostart entry fires `notify-send` at the next login, showing the message as a desktop notification. Works on all major desktop environments (GNOME, KDE, XFCE, Cinnamon, MATE, LXQt, Budgie) without root access, polkit, or any system-level configuration.
@@ -103,8 +103,8 @@ The startup message feature on Linux requires **no root access** — it stores t
 ### macOS
 
 - The app is **ad-hoc signed** — not notarized with Apple. On first launch, macOS may show a security warning. To open it: **right-click the app → Open**, then click **Open** in the dialog. After the first launch it opens normally.
-- Writing the login screen message requires administrator access. A native macOS password dialog is shown when needed.
-- The primary login message mechanism is `loginwindow LoginwindowText` (appears as a subtitle on the login screen). PolicyBanner files (`.txt` and `.rtf`) are also written for legal/compliance banner use cases.
+- The startup message feature requires **no root access**. The message is stored as a user-owned JSON file and delivered as a desktop notification after the next login via a LaunchAgent.
+- Shutdown and restart use System Events (graceful, no root) or `shutdown` via osascript elevation (force mode only).
 - Sleep is always available; hibernate availability depends on `pmset hibernatemode`.
 - Auto-clear uses a LaunchAgent at `~/Library/LaunchAgents/`.
 

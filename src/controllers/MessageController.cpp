@@ -15,6 +15,11 @@ QString MessageController::platformDescription() const
     return m_messageBk->platformDescription();
 }
 
+bool MessageController::isPostLogin() const
+{
+    return m_messageBk->isPostLogin();
+}
+
 void MessageController::onSave(const QString& title, const QString& body, bool autoClear)
 {
     if (body.length() > 500) {

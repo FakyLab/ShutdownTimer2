@@ -127,9 +127,19 @@ void TimerView::buildUI()
 
     if (!m_hibernateAvailable) {
         m_radioHibernate->setEnabled(false);
+#if defined(Q_OS_WIN)
         m_radioHibernate->setToolTip(
             tr("Hibernate is not available on this machine.\n"
                "It may be disabled via: powercfg /h on"));
+#elif defined(Q_OS_MACOS)
+        m_radioHibernate->setToolTip(
+            tr("Hibernate is not available on this machine.\n"
+               "It may be enabled via: sudo pmset -a hibernatemode 25"));
+#else
+        m_radioHibernate->setToolTip(
+            tr("Hibernate is not available on this machine.\n"
+               "Check that your system supports suspend-to-disk."));
+#endif
     }
     if (!m_sleepAvailable) {
         m_radioSleep->setEnabled(false);

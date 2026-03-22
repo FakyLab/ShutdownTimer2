@@ -1,23 +1,18 @@
 #pragma once
 
 #include "../../interfaces/IMessageBackend.h"
+#include <QString>
 
-// macOS login screen message — two complementary mechanisms:
+// macOS message backend — post-login desktop notification.
 //
-// PRIMARY: loginwindow LoginwindowText preference
-//   defaults write /Library/Preferences/com.apple.loginwindow LoginwindowText "..."
-//   This is Apple's intended API for login window messages. It shows as a
-//   subtitle under the machine name on the login screen. Works on all macOS
-//   versions including Sequoia. Requires root to write to /Library/Preferences/.
+// No root required. The message is stored as a user-owned JSON file and
+// delivered via a LaunchAgent that fires ShutdownTimer --show-notification
+// at the next login. The notification is shown via osascript display notification
+// which works on all macOS versions without any special entitlements.
 //
-// SECONDARY (legacy/compliance): PolicyBanner files
-//   /Library/Security/PolicyBanner.txt  — macOS 12 and earlier
-//   /Library/Security/PolicyBanner.rtf  — macOS 13+ (Ventura+)
-//   Shows a full-screen consent banner that the user must dismiss before
-//   logging in. Used for legal/compliance notices. Also requires root.
-//
-// Both are written together on save and cleared together on clear.
-// Elevation is done via a single osascript call (one password prompt).
+// Storage:
+//   ~/Library/Application Support/ShutdownTimer/message.json
+//   ~/Library/LaunchAgents/com.fakylab.shutdowntimer.notify.plist
 
 class MessageBackendMacOS : public IMessageBackend
 {
@@ -30,21 +25,18 @@ public:
     bool clear()                          override;
 
     QString platformDescription() const   override;
+    bool    isPostLogin() const           override { return true; }
     QString lastError() const             override { return m_lastError; }
 
+    // Path helpers — shared with main.cpp --show-notification handler
+    static QString messageFilePath();
+    static QString notifyPlistPath();
+
 private:
-    // Run a shell command with root privileges via osascript.
-    // Shows a native macOS password dialog. Returns true on success.
-    bool runElevated(const QString& shellCmd);
+    bool writeNotifyPlist();
+    bool runProcess(const QString& program, const QStringList& args);
 
     QString m_lastError;
 
-    // loginwindow defaults — primary mechanism
-    static constexpr char kLoginwindowPlist[] =
-        "/Library/Preferences/com.apple.loginwindow";
-    static constexpr char kLoginwindowKey[]   = "LoginwindowText";
-
-    // PolicyBanner — secondary/legacy mechanism
-    static constexpr char kBannerPath[]    = "/Library/Security/PolicyBanner.txt";
-    static constexpr char kBannerPathRtf[] = "/Library/Security/PolicyBanner.rtf";
+    static constexpr char kNotifyLabel[] = "com.fakylab.shutdowntimer.notify";
 };

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live countdown display** — Large clock with real-time tray icon tooltip updates
 - **Startup Message** — Set a custom title and body delivered to the user at next login
   - Windows: `HKLM\...\Winlogon` `LegalNoticeCaption` / `LegalNoticeText` (login screen)
-  - macOS: `loginwindow LoginwindowText` preference + PolicyBanner files (login screen)
+  - macOS: LaunchAgent + `osascript display notification` — **no root required**, shown after login
   - Linux: XDG autostart + `notify-send` desktop notification — **no root required**, works on all major DEs (GNOME, KDE, XFCE, Cinnamon, MATE, LXQt, Budgie)
 - **Auto-clear** — One-shot task removes the login message after next login
   - Windows: COM Task Scheduler ONLOGON task
@@ -34,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Platform notes
 - macOS: app is ad-hoc signed (not notarized). On first launch use right-click → Open to bypass Gatekeeper.
-- macOS: graceful shutdown/restart uses System Events (no root needed); force mode uses `shutdown` with osascript elevation.
+- macOS: graceful shutdown/restart uses System Events (no root); force mode uses `shutdown` via osascript elevation.
+- macOS: the startup message feature is fully unprivileged — no root, no password prompt required.
 - Linux: the message feature is fully unprivileged — no root, no polkit, no D-Bus helper required.
 
 [1.0.0]: https://github.com/FakyLab/ShutdownTimer/releases/tag/v1.0.0
