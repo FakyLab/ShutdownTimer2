@@ -57,8 +57,10 @@ bool AutoClearBackendLinux::schedule()
     out << "[Service]\n";
     out << "Type=oneshot\n";
     out << "ExecStart=" << exePath << " --auto-clear\n";
-    // Remove the unit file after running so it doesn't fire again
-    out << "ExecStartPost=/bin/rm -f " << unitPath << "\n\n";
+    // Remove the unit file after running so it doesn't fire again.
+    // Use the bare 'rm' command (no hardcoded /bin/) for compatibility
+    // with systems using merged /usr (where /bin is a symlink to /usr/bin).
+    out << "ExecStartPost=rm -f " << unitPath << "\n\n";
     out << "[Install]\n";
     out << "WantedBy=default.target\n";
     unit.close();

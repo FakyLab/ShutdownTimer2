@@ -281,10 +281,8 @@ bool MessageBackendLinux::writeGDM(const StartupMessage& msg)
         QTextStream out(&profile);
         // Preserve existing content, add gdm db entry
         if (!profileContent.trimmed().isEmpty())
-            out << profileContent.trimmed() << "
-";
-        out << "system-db:gdm
-";
+            out << profileContent.trimmed() << "\n";
+        out << "system-db:gdm\n";
         profile.close();
     }
 
@@ -297,15 +295,11 @@ bool MessageBackendLinux::writeGDM(const StartupMessage& msg)
     }
     QString combined = msg.title.isEmpty()
         ? msg.body
-        : (msg.body.isEmpty() ? msg.title : msg.title + "
-" + msg.body);
+        : (msg.body.isEmpty() ? msg.title : msg.title + "\n" + msg.body);
     QTextStream out(&dbFile);
-    out << "[org/gnome/login-screen]
-";
-    out << "banner-message-enable=true
-";
-    out << "banner-message-text='" << combined.replace("'", "\'") << "'
-";
+    out << "[org/gnome/login-screen]\n";
+    out << "banner-message-enable=true\n";
+    out << "banner-message-text='" << combined.replace("'", "\\'") << "'\n";
     dbFile.close();
 
     // Step 3: Run dconf update to apply changes

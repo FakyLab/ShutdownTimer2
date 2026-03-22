@@ -44,7 +44,7 @@ static bool handleAutoClear(int argc, char* argv[])
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
         QString title, body, dm;
-        for (int i = 2; i < argc - 1; i++) {
+        for (int i = 2; i < argc; i++) {
             if (strcmp(argv[i], "--title") == 0)      title = QString::fromUtf8(argv[++i]);
             else if (strcmp(argv[i], "--body") == 0)  body  = QString::fromUtf8(argv[++i]);
             else if (strcmp(argv[i], "--dm") == 0)    dm    = QString::fromUtf8(argv[++i]);
@@ -64,17 +64,11 @@ static bool handleAutoClear(int argc, char* argv[])
         }
         if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
             QTextStream out(&file);
-            if (!existing.isEmpty()) out << existing << "
-
-";
-            out << beginMarker << "
-";
-            if (!title.isEmpty()) out << title << "
-";
-            if (!body.isEmpty())  out << body  << "
-";
-            out << endMarker << "
-";
+            if (!existing.isEmpty()) out << existing << "\n\n";
+            out << beginMarker << "\n";
+            if (!title.isEmpty()) out << title << "\n";
+            if (!body.isEmpty())  out << body  << "\n";
+            out << endMarker << "\n";
         }
         // Write DM-specific config
         if (dm == QLatin1String("sddm")) {
@@ -84,9 +78,7 @@ static bool handleAutoClear(int argc, char* argv[])
                 QTextStream out(&sddmFile);
                 QString combined = title.isEmpty() ? body
                     : (body.isEmpty() ? title : title + " - " + body);
-                out << "[General]
-WelcomeMessage=" << combined << "
-";
+                out << "[General]\nWelcomeMessage=" << combined << "\n";
             }
         } else if (dm == QLatin1String("lightdm")) {
             QDir().mkpath("/etc/lightdm/lightdm.conf.d");
@@ -94,13 +86,9 @@ WelcomeMessage=" << combined << "
             if (ldmFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
                 QTextStream out(&ldmFile);
                 QString combined = title.isEmpty() ? body
-                    : (body.isEmpty() ? title : title + "
-" + body);
-                out << "[greeter]
-banner-message-enable=true
-banner-message-text="
-                    << combined << "
-";
+                    : (body.isEmpty() ? title : title + "\n" + body);
+                out << "[greeter]\nbanner-message-enable=true\nbanner-message-text="
+                    << combined << "\n";
             }
         } else if (dm == QLatin1String("gdm")) {
             QDir().mkpath("/etc/dconf/profile");
@@ -114,10 +102,8 @@ banner-message-text="
             if (!pfContent.contains("system-db:gdm")) {
                 if (pf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
                     QTextStream out(&pf);
-                    if (!pfContent.trimmed().isEmpty()) out << pfContent.trimmed() << "
-";
-                    out << "system-db:gdm
-";
+                    if (!pfContent.trimmed().isEmpty()) out << pfContent.trimmed() << "\n";
+                    out << "system-db:gdm\n";
                 }
             }
             // Write banner key file
@@ -125,15 +111,11 @@ banner-message-text="
             if (bf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
                 QTextStream out(&bf);
                 QString combined = title.isEmpty() ? body
-                    : (body.isEmpty() ? title : title + "
-" + body);
-                combined.replace("'", "\'");
-                out << "[org/gnome/login-screen]
-"
-                    << "banner-message-enable=true
-"
-                    << "banner-message-text='" << combined << "'
-";
+                    : (body.isEmpty() ? title : title + "\n" + body);
+                combined.replace("'", "\\'");
+                out << "[org/gnome/login-screen]\n"
+                    << "banner-message-enable=true\n"
+                    << "banner-message-text='" << combined << "'\n";
             }
             QProcess::execute("dconf", QStringList{"update"});
         }
@@ -234,19 +216,25 @@ banner-message-text="
         QProcess::execute("systemctl",
             QStringList{"--user", "disable", "shutdown-timer-autoclear.service"});
         QFile::remove(unitPath);
+        // Reload systemd so it forgets the now-dangling WantedBy symlink
+        QProcess::execute("systemctl", QStringList{"--user", "daemon-reload"});
     }
 #elif defined(Q_OS_MACOS)
     {
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
 
-        // Remove both .txt (macOS 12-) and .rtf (macOS 13+) banner files.
-        // /Library/Security/ requires root — use osascript with administrator
-        // privileges to remove them. This shows a password prompt if needed.
+        // Clear the loginwindow LoginwindowText preference (primary mechanism)
+        // and remove both PolicyBanner files (legacy/secondary mechanism).
+        // All require root — done in a single osascript call, one password prompt.
+        // Use ; between commands so each runs independently even if one fails
+        // (e.g. key already deleted, or banner files already gone).
         QProcess::execute("osascript", QStringList{
             "-e",
-            "do shell script "rm -f /Library/Security/PolicyBanner.txt"
-            " /Library/Security/PolicyBanner.rtf""
+            "do shell script \""
+            "defaults delete /Library/Preferences/com.apple.loginwindow LoginwindowText"
+            " ; rm -f /Library/Security/PolicyBanner.txt"
+            " /Library/Security/PolicyBanner.rtf\""
             " with administrator privileges"
         });
 

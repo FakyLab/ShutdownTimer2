@@ -11,7 +11,6 @@
 // is not present (plain .deb / AppImage installs).
 
 #include "../../interfaces/IMessageBackend.h"
-#include <QDBusInterface>
 #include <QDBusReply>
 #include <QString>
 
@@ -34,10 +33,7 @@ public:
     static bool isHelperAvailable();
 
 private:
-    QDBusInterface* iface() const;
-
-    mutable QDBusInterface* m_iface     = nullptr;
-    mutable QString         m_lastError;
+    mutable QString m_lastError;
 
     // static constexpr const char* avoids multiple-definition linker errors
     // when this header is included from more than one translation unit.
