@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>org.fakylab.ShutdownTimer</string>
+    <key>CFBundleName</key>
+    <string>Shutdown Timer</string>
+    <key>CFBundleDisplayName</key>
+    <string>Shutdown Timer</string>
+    <key>CFBundleExecutable</key>
+    <string>ShutdownTimer</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+
+    <!-- Required on macOS 13+ for osascript / Apple Events -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Shutdown Timer uses Apple Events to trigger sleep mode.</string>
+
+    <!-- Required for System Events access (sleep action) -->
+    <key>NSAppleScriptEnabled</key>
+    <true/>
+
+    <!-- Prevent the app from appearing in the Dock when running headlessly -->
+    <key>LSUIElement</key>
+    <false/>
+
+    <!-- Allow the app to run without being signed with a specific team ID -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+</dict>
+</plist>

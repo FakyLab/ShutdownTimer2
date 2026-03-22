@@ -25,20 +25,6 @@ bool ShutdownBackendMacOS::isSleepAvailable()
     return true;
 }
 
-bool ShutdownBackendMacOS::runOsascript(const QString& script)
-{
-    QProcess proc;
-    proc.start("osascript", QStringList{"-e", script});
-    proc.waitForFinished(10000);
-    if (proc.exitCode() != 0) {
-        m_lastError = QString("osascript failed: %1")
-                      .arg(QString::fromUtf8(proc.readAllStandardError()).trimmed());
-        emit errorOccurred(m_lastError);
-        return false;
-    }
-    return true;
-}
-
 bool ShutdownBackendMacOS::runProcess(const QString& program, const QStringList& args)
 {
     QProcess proc;
@@ -60,7 +46,9 @@ bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action, int seconds, 
 
     if (action == ShutdownAction::Sleep) {
         m_pending = false;
-        return runOsascript("tell application \"System Events\" to sleep");
+        // Use pmset instead of osascript — pmset doesn't require Apple Events
+        // entitlement or NSAppleEventsUsageDescription on Sequoia+
+        return runProcess("pmset", QStringList{"sleepnow"});
     }
 
     if (action == ShutdownAction::Hibernate) {

@@ -19,7 +19,6 @@ public:
     QString lastError() const override { return m_lastError; }
 
 private:
-    bool runOsascript(const QString& script);
     bool runProcess(const QString& program, const QStringList& args);
 
     // Stored reference for sub-minute delayed shutdowns so cancel() can

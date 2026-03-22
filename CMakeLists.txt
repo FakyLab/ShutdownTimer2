@@ -4,6 +4,11 @@ project(ShutdownTimer VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# macOS minimum deployment target — must be set before find_package(Qt6)
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
+endif()
+
 # Qt6 auto-tools
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -137,8 +142,16 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    # Create a proper .app bundle on macOS
-    set_target_properties(ShutdownTimer PROPERTIES MACOSX_BUNDLE TRUE)
+    # Create a proper .app bundle on macOS with Info.plist
+    set_target_properties(ShutdownTimer PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist"
+        MACOSX_BUNDLE_BUNDLE_NAME "Shutdown Timer"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.fakylab.ShutdownTimer"
+        MACOSX_BUNDLE_MINIMUM_SYSTEM_VERSION "12.0"
+    )
 endif()
 
 # ── Include directories ───────────────────────────────────────────────────────

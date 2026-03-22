@@ -2,7 +2,7 @@
 
 A cross-platform desktop utility for scheduling system shutdowns, restarts, hibernation, and sleep — and displaying a custom message on the login screen before users log in.
 
-💡 Ideated, directed, and shipped by [@FakyLab](https://github.com/FakyLab) — no coding knowledge required.
+
 
 ---
 

@@ -5,6 +5,7 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QDir>
+#include <QCoreApplication>
 
 MessageBackendLinux::MessageBackendLinux(QObject* parent)
     : IMessageBackend(parent)
@@ -23,14 +24,38 @@ bool MessageBackendLinux::isServiceActive(const QString& name) const
     return proc.readAllStandardOutput().trimmed() == "active";
 }
 
+bool MessageBackendLinux::isSlickGreeter() const
+{
+    // Slick-greeter is identified by its config file or the greeter-session setting
+    if (QFile::exists("/etc/lightdm/slick-greeter.conf"))
+        return true;
+
+    // Check lightdm.conf for greeter-session=slick-greeter
+    QFile conf("/etc/lightdm/lightdm.conf");
+    if (conf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString content = QString::fromUtf8(conf.readAll());
+        if (content.contains("greeter-session=slick-greeter"))
+            return true;
+    }
+    return false;
+}
+
 LinuxLoginBackend MessageBackendLinux::detectBackend() const
 {
     if (isServiceActive("gdm") || isServiceActive("gdm3"))
         return LinuxLoginBackend::GDM;
+    // PLM (Plasma Login Manager) — KDE Plasma 6.6+, replaces SDDM on Fedora 44+
+    // It is a SDDM fork and uses the same config drop-in structure.
+    if (isServiceActive("plasma-login-manager"))
+        return LinuxLoginBackend::PLM;
     if (isServiceActive("sddm"))
         return LinuxLoginBackend::SDDM;
-    if (isServiceActive("lightdm"))
+    if (isServiceActive("lightdm")) {
+        // Distinguish slick-greeter (Linux Mint) from GTK greeter (Ubuntu MATE etc.)
+        if (isSlickGreeter())
+            return LinuxLoginBackend::LightDMSlick;
         return LinuxLoginBackend::LightDM;
+    }
     return LinuxLoginBackend::EtcIssue;
 }
 
@@ -49,11 +74,16 @@ QString MessageBackendLinux::platformDescription() const
     ensureBackendDetected();
     switch (m_backend) {
         case LinuxLoginBackend::SDDM:
-            return tr("login screen (SDDM config + /etc/issue)");
+            return tr("login screen (SDDM + /etc/issue)");
+        case LinuxLoginBackend::PLM:
+            return tr("login screen (Plasma Login Manager + /etc/issue)");
         case LinuxLoginBackend::LightDM:
-            return tr("login screen (LightDM config + /etc/issue)");
+            return tr("login screen (LightDM GTK greeter + /etc/issue)");
+        case LinuxLoginBackend::LightDMSlick:
+            return tr("/etc/issue only — slick-greeter (Linux Mint) does not support "
+                      "text banners on the graphical login screen");
         case LinuxLoginBackend::GDM:
-            return tr("/etc/issue only (GDM has no native login banner support)");
+            return tr("login screen (GDM dconf banner + /etc/issue)");
         default:
             return tr("/etc/issue (TTY login screen)");
     }
@@ -228,34 +258,167 @@ bool MessageBackendLinux::clearLightDM()
     return true;
 }
 
+// -- GDM --
+// Ubuntu / GNOME: set login banner via dconf.
+// Requires writing a dconf profile and key file, then running dconf update.
+// Reference: https://help.gnome.org/admin/system-admin-guide/stable/login-banner.html
+
+bool MessageBackendLinux::writeGDM(const StartupMessage& msg)
+{
+    // Step 1: Ensure /etc/dconf/profile/gdm exists and has the gdm database
+    QDir().mkpath(QFileInfo(kGdmProfile).path());
+    QFile profile(kGdmProfile);
+    QString profileContent;
+    if (profile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        profileContent = QString::fromUtf8(profile.readAll());
+        profile.close();
+    }
+    if (!profileContent.contains("system-db:gdm")) {
+        if (!profile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            m_lastError = tr("Cannot write GDM dconf profile: %1").arg(profile.errorString());
+            return false;
+        }
+        QTextStream out(&profile);
+        // Preserve existing content, add gdm db entry
+        if (!profileContent.trimmed().isEmpty())
+            out << profileContent.trimmed() << "
+";
+        out << "system-db:gdm
+";
+        profile.close();
+    }
+
+    // Step 2: Write banner message key file
+    QDir().mkpath(kGdmDbDir);
+    QFile dbFile(kGdmBannerDb);
+    if (!dbFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_lastError = tr("Cannot write GDM banner config: %1").arg(dbFile.errorString());
+        return false;
+    }
+    QString combined = msg.title.isEmpty()
+        ? msg.body
+        : (msg.body.isEmpty() ? msg.title : msg.title + "
+" + msg.body);
+    QTextStream out(&dbFile);
+    out << "[org/gnome/login-screen]
+";
+    out << "banner-message-enable=true
+";
+    out << "banner-message-text='" << combined.replace("'", "\'") << "'
+";
+    dbFile.close();
+
+    // Step 3: Run dconf update to apply changes
+    QProcess proc;
+    proc.start("dconf", QStringList{"update"});
+    proc.waitForFinished(5000);
+    if (proc.exitCode() != 0) {
+        m_lastError = tr("dconf update failed: %1")
+            .arg(QString::fromUtf8(proc.readAllStandardError()).trimmed());
+        return false;
+    }
+    return true;
+}
+
+bool MessageBackendLinux::clearGDM()
+{
+    // Remove the banner key file and run dconf update
+    QFile::remove(kGdmBannerDb);
+
+    QProcess proc;
+    proc.start("dconf", QStringList{"update"});
+    proc.waitForFinished(5000);
+    return true;
+}
+
 // -- Public interface --
+
+// -- Privilege elevation via pkexec --
+// Called when direct write fails (permission denied).
+// pkexec shows the system password dialog and re-runs the app with
+// the --write-message or --clear-message headless argument as root.
+bool MessageBackendLinux::runWithPkexec(const QStringList& args)
+{
+    // Check pkexec is available
+    QProcess check;
+    check.start("which", QStringList{"pkexec"});
+    check.waitForFinished(2000);
+    if (check.exitCode() != 0) {
+        m_lastError = tr("pkexec not found. Please run the app as root to set login messages.");
+        return false;
+    }
+
+    QString exePath = QCoreApplication::applicationFilePath();
+    QStringList pkexecArgs;
+    pkexecArgs << exePath << args;
+
+    QProcess proc;
+    proc.start("pkexec", pkexecArgs);
+    proc.waitForFinished(30000); // 30s for user to enter password
+    if (proc.exitCode() != 0) {
+        QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+        m_lastError = err.isEmpty()
+            ? tr("Authentication failed or was cancelled.")
+            : err;
+        return false;
+    }
+    return true;
+}
 
 bool MessageBackendLinux::write(const StartupMessage& msg)
 {
     ensureBackendDetected();
-    // Always write /etc/issue as universal fallback
-    if (!writeEtcIssue(msg)) return false;
+
+    // Try direct write first (succeeds if already root or file is writable)
+    bool ok = writeEtcIssue(msg);
+    if (!ok) {
+        // Permission denied — use pkexec to elevate.
+        // Pass DM type so the headless handler also writes DM config.
+        QString dmType;
+        switch (m_backend) {
+            case LinuxLoginBackend::SDDM:         dmType = "sddm";    break;
+            case LinuxLoginBackend::PLM:          dmType = "sddm";    break; // same config
+            case LinuxLoginBackend::LightDM:      dmType = "lightdm"; break;
+            case LinuxLoginBackend::GDM:          dmType = "gdm";     break;
+            case LinuxLoginBackend::LightDMSlick: dmType = "none";    break;
+            default:                              dmType = "none";    break;
+        }
+        QStringList args;
+        args << "--write-message"
+             << "--title" << msg.title
+             << "--body"  << msg.body
+             << "--dm"    << dmType;
+        return runWithPkexec(args);
+    }
 
     // Additionally write to the detected graphical DM
     switch (m_backend) {
-        case LinuxLoginBackend::SDDM:    return writeSDDM(msg);
-        case LinuxLoginBackend::LightDM: return writeLightDM(msg);
-        case LinuxLoginBackend::GDM:
-            // GDM has no native banner - /etc/issue already written above
-            return true;
-        default:
-            return true;
+        case LinuxLoginBackend::SDDM:         return writeSDDM(msg);
+        case LinuxLoginBackend::PLM:          return writeSDDM(msg); // PLM is SDDM fork, same config
+        case LinuxLoginBackend::LightDM:      return writeLightDM(msg);
+        case LinuxLoginBackend::LightDMSlick: return true; // no graphical banner supported
+        case LinuxLoginBackend::GDM:          return writeGDM(msg);
+        default:                              return true;
     }
 }
 
 bool MessageBackendLinux::clear()
 {
     ensureBackendDetected();
+
     bool ok = clearEtcIssue();
+    if (!ok) {
+        // Permission denied — use pkexec
+        if (!runWithPkexec(QStringList{"--clear-message"})) return false;
+        return true;
+    }
 
     switch (m_backend) {
-        case LinuxLoginBackend::SDDM:    ok &= clearSDDM();    break;
-        case LinuxLoginBackend::LightDM: ok &= clearLightDM(); break;
+        case LinuxLoginBackend::SDDM:         ok &= clearSDDM();    break;
+        case LinuxLoginBackend::PLM:          ok &= clearSDDM();    break; // same config as SDDM
+        case LinuxLoginBackend::LightDM:      ok &= clearLightDM(); break;
+        case LinuxLoginBackend::LightDMSlick: break; // nothing to clear graphically
+        case LinuxLoginBackend::GDM:          ok &= clearGDM();     break;
         default: break;
     }
     return ok;
