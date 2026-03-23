@@ -1,4 +1,5 @@
 #include "MessageBackendMacOS.h"
+#include "MacOSNotifier.h"
 
 #include <QFile>
 #include <QDir>
@@ -44,7 +45,13 @@ QString MessageBackendMacOS::platformDescription() const
 
 bool MessageBackendMacOS::write(const StartupMessage& msg)
 {
-    // Write message.json to the fixed path
+    if (!MacOSEnsureNotificationAuthorization()) {
+        m_lastError = tr(
+            "Notifications are disabled for Shutdown Timer.\n"
+            "Enable them in System Settings > Notifications > Shutdown Timer.");
+        return false;
+    }
+
     QString filePath = messageFilePath();
     QDir().mkpath(QFileInfo(filePath).path());
 
@@ -60,13 +67,9 @@ bool MessageBackendMacOS::write(const StartupMessage& msg)
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     f.close();
 
-    // Write the notification LaunchAgent plist.
-    // This is just a file write — no launchctl bootstrap.
-    // launchd scans ~/Library/LaunchAgents/ at the start of the next session
-    // and loads any new plists it finds there.
     if (!writeNotifyPlist()) {
-        m_lastError = tr("Message saved but notification agent could not be registered.");
-        // Non-fatal — message is saved, notification just won't auto-show
+        QFile::remove(filePath);
+        return false;
     }
 
     return true;
@@ -125,8 +128,10 @@ bool MessageBackendMacOS::writeNotifyPlist()
     QString exePath = QCoreApplication::applicationFilePath();
 
     QFile f(plistPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_lastError = tr("Cannot write notification agent: %1").arg(f.errorString());
         return false;
+    }
 
     QTextStream out(&f);
     out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";

@@ -7,6 +7,16 @@
 #include <QStandardPaths>
 #include <QCoreApplication>
 
+namespace {
+QString quoteUnitArg(const QString& arg)
+{
+    QString escaped = arg;
+    escaped.replace("\\", "\\\\");
+    escaped.replace("\"", "\\\"");
+    return "\"" + escaped + "\"";
+}
+}
+
 AutoClearBackendLinux::AutoClearBackendLinux(QObject* parent)
     : IAutoClearBackend(parent)
 {}
@@ -35,9 +45,10 @@ bool AutoClearBackendLinux::runProcess(const QString& program, const QStringList
 
 bool AutoClearBackendLinux::schedule()
 {
-    QString exePath = QCoreApplication::applicationFilePath();
+    QString exePath = qEnvironmentVariable("APPIMAGE");
+    if (exePath.isEmpty())
+        exePath = QCoreApplication::applicationFilePath();
 
-    // Write a systemd user service unit that runs once at login
     QString configHome = QStandardPaths::writableLocation(
         QStandardPaths::GenericConfigLocation);
     QString unitDir  = configHome + "/systemd/user/";
@@ -52,27 +63,30 @@ bool AutoClearBackendLinux::schedule()
 
     QTextStream out(&unit);
     out << "[Unit]\n";
-    out << "Description=Shutdown Timer — auto-clear login message\n";
+    out << "Description=Shutdown Timer - auto-clear login message\n";
     out << "After=graphical-session.target\n\n";
     out << "[Service]\n";
     out << "Type=oneshot\n";
-    out << "ExecStart=" << exePath << " --auto-clear\n";
-    // Remove the unit file after running so it doesn't fire again.
-    // Use the bare 'rm' command (no hardcoded /bin/) for compatibility
-    // with systems using merged /usr (where /bin is a symlink to /usr/bin).
-    out << "ExecStartPost=rm -f " << unitPath << "\n\n";
+    out << "ExecStart=" << quoteUnitArg(exePath) << " --auto-clear\n";
+    out << "ExecStartPost=rm -f " << quoteUnitArg(unitPath) << "\n\n";
     out << "[Install]\n";
     out << "WantedBy=default.target\n";
     unit.close();
 
-    // Enable and start via systemd --user
     if (hasSystemdUser()) {
-        runProcess("systemctl", {"--user", "daemon-reload"});
-        return runProcess("systemctl",
-                          {"--user", "enable", QString(kServiceName) + ".service"});
+        if (!runProcess("systemctl", {"--user", "daemon-reload"})) {
+            QFile::remove(unitPath);
+            return false;
+        }
+
+        if (!runProcess("systemctl",
+                        {"--user", "enable", QString(kServiceName) + ".service"})) {
+            QFile::remove(unitPath);
+            return false;
+        }
     }
 
-    return true; // Unit file is in place; will be picked up at next login
+    return true;
 }
 
 bool AutoClearBackendLinux::cancel()

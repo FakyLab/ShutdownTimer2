@@ -17,7 +17,7 @@ This document covers the full build process for all supported platforms.
 ## Windows
 
 ### Toolchain
-- **Qt6 with MinGW 64-bit** — download via the [Qt Online Installer](https://www.qt.io/download-qt-installer)
+- **Qt6 with MinGW 64-bit** - download via the [Qt Online Installer](https://www.qt.io/download-qt-installer)
 - When installing Qt, select:
   - `Qt 6.x > MinGW 64-bit`
   - `Qt 6.x > Additional Libraries > Qt Linguist`
@@ -25,7 +25,7 @@ This document covers the full build process for all supported platforms.
 
 ### Build steps
 
-Open the **Qt 6.x MinGW 64-bit** command prompt (Start Menu → Qt folder):
+Open the **Qt 6.x MinGW 64-bit** command prompt (Start Menu -> Qt folder):
 
 ```bat
 git clone https://github.com/FakyLab/ShutdownTimer.git
@@ -86,15 +86,20 @@ cmake --build build
 
 Binary: `build/ShutdownTimer`
 
-### Running with required privileges
+### Running
 
-Shutdown Timer requires root access for shutdown API calls and writing to system paths:
+Run the app as a normal desktop user:
 
 ```bash
-sudo ./build/ShutdownTimer
-# or via pkexec for a GUI elevation prompt:
-pkexec ./build/ShutdownTimer
+./build/ShutdownTimer
 ```
+
+Notes:
+- Shutdown and restart may prompt for authentication depending on your distro's policy.
+- Startup messages on Linux are user-scoped and unprivileged.
+- Message content is stored in `~/.config/shutdowntimer/message.json`.
+- Next-login display uses an XDG autostart entry in `~/.config/autostart/`.
+- Auto-clear uses a `systemd --user` unit when available.
 
 ---
 
@@ -129,6 +134,12 @@ cmake --build build
 
 Binary: `build/ShutdownTimer.app`
 
+### Runtime notes
+
+- The startup message feature is user-scoped and does not require root.
+- Graceful shutdown and restart use native Apple Events.
+- Force shutdown and restart may prompt for administrator authentication.
+
 ### Deploying Qt runtime
 
 ```bash
@@ -141,7 +152,7 @@ cd build && zip -r ShutdownTimer.zip ShutdownTimer.app
 
 ## Debug Build
 
-Replace `-DCMAKE_BUILD_TYPE=Release` with `-DCMAKE_BUILD_TYPE=Debug` on any platform. Debug builds include symbols and disable optimisations.
+Replace `-DCMAKE_BUILD_TYPE=Release` with `-DCMAKE_BUILD_TYPE=Debug` on any platform. Debug builds include symbols and disable optimizations.
 
 ---
 
@@ -161,21 +172,21 @@ To update translations after editing `.ts` files, simply re-run `cmake --build b
 
 ```
 ShutdownTimer/
-├── src/
-│   ├── app/              Entry point (main.cpp)
-│   ├── core/             TimerEngine, LanguageManager
-│   ├── models/           Data models (no UI, no platform code)
-│   ├── controllers/      Business logic layer
-│   ├── views/            Qt UI (MainWindow, TimerView, MessageView)
-│   └── services/
-│       ├── interfaces/   Pure virtual backend interfaces
-│       └── platform/
-│           ├── windows/  Win32 implementations
-│           ├── linux/    systemctl / /etc/issue / systemd implementations
-│           └── macos/    osascript / PolicyBanner / LaunchAgent implementations
-├── i18n/                 .ts translation source files
-├── assets/               Icons (ICO + PNG at multiple sizes)
-├── CMakeLists.txt        Cross-platform build script
-├── resources.qrc         Qt resource bundle
-└── resources.rc          Windows version/icon resource (Windows only)
+|-- src/
+|   |-- app/              Entry point (main.cpp)
+|   |-- core/             TimerEngine, LanguageManager
+|   |-- models/           Data models (no UI, no platform code)
+|   |-- controllers/      Business logic layer
+|   |-- views/            Qt UI (MainWindow, TimerView, MessageView)
+|   `-- services/
+|       |-- interfaces/   Pure virtual backend interfaces
+|       `-- platform/
+|           |-- windows/  Win32 implementations
+|           |-- linux/    systemctl / XDG autostart / systemd-user implementations
+|           `-- macos/    Apple Events / notifications / LaunchAgent implementations
+|-- i18n/                 .ts translation source files
+|-- assets/               Icons (ICO + PNG at multiple sizes)
+|-- CMakeLists.txt        Cross-platform build script
+|-- resources.qrc         Qt resource bundle
+`-- resources.rc          Windows version/icon resource (Windows only)
 ```

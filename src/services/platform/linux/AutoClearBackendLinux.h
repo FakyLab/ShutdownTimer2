@@ -2,8 +2,9 @@
 
 #include "../../interfaces/IAutoClearBackend.h"
 
-// Uses a systemd user service drop-in that fires once at login then removes itself.
-// Falls back to a ~/.profile one-shot script if systemd user services are unavailable.
+// Uses a systemd user service unit that fires once at login then removes itself.
+// If no systemd --user manager is active in the current session, the unit file is
+// still written and can be picked up by a later login session.
 
 class AutoClearBackendLinux : public IAutoClearBackend
 {

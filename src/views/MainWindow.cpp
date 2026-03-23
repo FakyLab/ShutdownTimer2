@@ -361,10 +361,13 @@ void MainWindow::onTrayQuit()
         auto reply = QMessageBox::question(
             this, tr("Quit"),
             tr("A shutdown timer is running. Quit anyway?\n"
-               "(The OS shutdown will still proceed if already initiated.)"),
+               "This will cancel the pending shutdown."),
             QMessageBox::Yes | QMessageBox::No);
         if (reply != QMessageBox::Yes) return;
     }
+
+    if (m_timerCtrl->model()->isRunning())
+        m_timerCtrl->onCancel();
 
     if (m_trayIcon) m_trayIcon->hide();
     m_forceQuit = true;
@@ -386,10 +389,12 @@ void MainWindow::closeEvent(QCloseEvent* event)
         m_settingsCtrl->onWindowGeometryChanged(saveGeometry());
         m_hiddenToTray = true;
         hide();
+#if !defined(Q_OS_MACOS)
         m_trayIcon->showMessage(
             tr("Shutdown Timer"),
             tr("Running in the system tray. Double-click the icon to restore."),
             QSystemTrayIcon::Information, 3000);
+#endif
         event->ignore();
     } else {
         m_settingsCtrl->onWindowGeometryChanged(saveGeometry());

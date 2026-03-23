@@ -43,7 +43,11 @@ void TimerController::onStartCountdown(int totalSeconds,
     // on macOS hits the immediate path (LaunchAgent has already self-destructed).
     // Sleep/Hibernate return canScheduleAhead()=true but are immediate actions —
     // the LaunchAgent path ignores seconds=0 and only applies for seconds > 0.
-    if (m_shutdown->canScheduleAhead() && totalSeconds > 0) {
+    const bool supportsScheduleAhead =
+        (action == ShutdownAction::Shutdown || action == ShutdownAction::Restart)
+        && m_shutdown->canScheduleAhead();
+
+    if (supportsScheduleAhead && totalSeconds > 0) {
         bool ok = m_shutdown->scheduleShutdown(action, totalSeconds, force);
         if (!ok) {
             m_model->setRunning(false);
@@ -72,8 +76,11 @@ void TimerController::onStartScheduled(const QDateTime& target,
     m_model->setRunning(true);
 
     int secondsUntil = static_cast<int>(QDateTime::currentDateTime().secsTo(target));
+    const bool supportsScheduleAhead =
+        (action == ShutdownAction::Shutdown || action == ShutdownAction::Restart)
+        && m_shutdown->canScheduleAhead();
 
-    if (m_shutdown->canScheduleAhead() && secondsUntil > 0) {
+    if (supportsScheduleAhead && secondsUntil > 0) {
         bool ok = m_shutdown->scheduleShutdown(action, secondsUntil, force);
         if (!ok) {
             m_model->setRunning(false);
@@ -88,7 +95,6 @@ void TimerController::onStartScheduled(const QDateTime& target,
 
     m_engine->startScheduled(target);
     emit timerStarted();
-    emit runningStateChanged(false);
     emit runningStateChanged(true);
 }
 

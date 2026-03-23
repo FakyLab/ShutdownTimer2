@@ -4,18 +4,18 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QTemporaryFile>
 #include <QTextStream>
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QCoreApplication>
+#include <QThread>
 #include <unistd.h>
 
 ShutdownBackendMacOS::ShutdownBackendMacOS(QObject* parent)
     : IShutdownBackend(parent)
 {}
-
-// -- Capability detection -----------------------------------------------------
 
 bool ShutdownBackendMacOS::isHibernateAvailable()
 {
@@ -31,34 +31,54 @@ bool ShutdownBackendMacOS::isSleepAvailable()
     return true;
 }
 
-// -- Helpers ------------------------------------------------------------------
-
 QString ShutdownBackendMacOS::timerPlistPath() const
 {
     return QDir::homePath() +
            "/Library/LaunchAgents/com.fakylab.shutdowntimer.timer.plist";
 }
 
-bool ShutdownBackendMacOS::runProcess(const QString& program, const QStringList& args)
+bool ShutdownBackendMacOS::runProcess(const QString& program,
+                                      const QStringList& args,
+                                      int timeoutMs,
+                                      bool emitFailure)
 {
     QProcess proc;
     proc.start(program, args);
-    proc.waitForFinished(10000);
-    if (proc.exitCode() != 0) {
-        m_lastError = QString("%1 failed: %2")
-                      .arg(program,
-                           QString::fromUtf8(proc.readAllStandardError()).trimmed());
-        emit errorOccurred(m_lastError);
+
+    if (!proc.waitForStarted(3000)) {
+        m_lastError = QString("%1 failed to start: %2")
+                      .arg(program, proc.errorString());
+        if (emitFailure)
+            emit errorOccurred(m_lastError);
         return false;
     }
+
+    if (!proc.waitForFinished(timeoutMs)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        m_lastError = QString("%1 timed out.").arg(program);
+        if (emitFailure)
+            emit errorOccurred(m_lastError);
+        return false;
+    }
+
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        QString detail = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+        if (detail.isEmpty())
+            detail = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+        if (detail.isEmpty())
+            detail = QString("exit code %1").arg(proc.exitCode());
+        m_lastError = QString("%1 failed: %2").arg(program, detail);
+        if (emitFailure)
+            emit errorOccurred(m_lastError);
+        return false;
+    }
+
     return true;
 }
 
 bool ShutdownBackendMacOS::runElevated(const QString& shellCmd)
 {
-    // Used only for force-mode shutdown/restart — the only case that genuinely
-    // needs root. Must be called from a background thread; it blocks until
-    // the user authenticates or cancels (up to 30 s).
     QString escaped = shellCmd;
     escaped.replace("\\", "\\\\");
     escaped.replace("\"", "\\\"");
@@ -70,7 +90,8 @@ bool ShutdownBackendMacOS::runElevated(const QString& shellCmd)
         emit errorOccurred(m_lastError);
         return false;
     }
-    QString scriptPath = tmpScript.fileName();
+
+    const QString scriptPath = tmpScript.fileName();
     {
         QTextStream out(&tmpScript);
         out << "do shell script \"" << escaped << "\" with administrator privileges\n";
@@ -88,32 +109,58 @@ bool ShutdownBackendMacOS::runElevated(const QString& shellCmd)
         emit errorOccurred(m_lastError);
         return false;
     }
+
     return true;
 }
 
-// -- LaunchAgent scheduling ---------------------------------------------------
-//
-// For any scheduled shutdown/restart with seconds > 0, we register a
-// LaunchAgent with StartCalendarInterval so the OS fires it at the right
-// wall-clock time even if the app is closed.
-//
-// The agent runs: ShutdownTimer --execute-shutdown --action shutdown|restart --force 0|1
-// The headless handler in main.cpp performs the actual shutdown via
-// sendSystemAppleEvent() — no TCC, no root for graceful mode.
+bool ShutdownBackendMacOS::validateLaunchAgentPlist(const QString& path)
+{
+    if (runProcess("plutil", {"-lint", path}, 10000, false))
+        return true;
+
+    m_lastError = QString("LaunchAgent plist validation failed: %1").arg(m_lastError);
+    emit errorOccurred(m_lastError);
+    return false;
+}
+
+bool ShutdownBackendMacOS::bootstrapLaunchAgent(const QString& path)
+{
+    const QString domain = QString("gui/%1").arg(QString::number(getuid()));
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (runProcess("launchctl", {"bootstrap", domain, path}, 10000, false))
+            return true;
+
+        const QString bootstrapError = m_lastError;
+        if (attempt == 0) {
+            runProcess("launchctl", {"bootout", domain, path}, 10000, false);
+            QThread::msleep(150);
+            continue;
+        }
+
+        m_lastError = QString("launchctl bootstrap failed: %1").arg(bootstrapError);
+        emit errorOccurred(m_lastError);
+        return false;
+    }
+
+    return false;
+}
 
 bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
-                                                   int seconds,
-                                                   bool force)
+                                                  int seconds,
+                                                  bool force)
 {
-    QDateTime fireTime = QDateTime::currentDateTime().addSecs(seconds);
-    QString actionStr  = (action == ShutdownAction::Shutdown) ? "shutdown" : "restart";
-    QString forceStr   = force ? "1" : "0";
-    QString exePath    = QCoreApplication::applicationFilePath();
+    const QDateTime fireTime = QDateTime::currentDateTime().addSecs(seconds);
+    const QString actionStr  = (action == ShutdownAction::Shutdown) ? "shutdown" : "restart";
+    const QString forceStr   = force ? "1" : "0";
+    const QString exePath    = QCoreApplication::applicationFilePath();
 
-    QString path = timerPlistPath();
+    const QString path = timerPlistPath();
     QDir().mkpath(QFileInfo(path).path());
 
-    QFile file(path);
+    cancelLaunchAgent();
+
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         m_lastError = QString("Cannot write timer LaunchAgent: %1").arg(file.errorString());
         emit errorOccurred(m_lastError);
@@ -139,26 +186,27 @@ bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
     out << "    </array>\n";
     out << "    <key>StartCalendarInterval</key>\n";
     out << "    <dict>\n";
-    // Include Hour, Minute, AND Second for full precision.
-    // Without Second, launchd fires at the start of the target minute,
-    // which can be up to 59 seconds early.
     out << "        <key>Hour</key>   <integer>" << fireTime.time().hour()   << "</integer>\n";
     out << "        <key>Minute</key> <integer>" << fireTime.time().minute() << "</integer>\n";
     out << "        <key>Second</key> <integer>" << fireTime.time().second() << "</integer>\n";
     out << "    </dict>\n";
-    // LaunchOnlyOnce: the handler removes the plist after running,
-    // so this prevents repeated daily firings if removal somehow fails.
     out << "    <key>LaunchOnlyOnce</key>\n";
     out << "    <true/>\n";
     out << "</dict>\n";
     out << "</plist>\n";
-    file.close();
 
-    // Register the agent with launchd for the current user session.
-    QString uid = QString::number(getuid());
-    if (!runProcess("launchctl", QStringList{
-            "bootstrap", QString("gui/%1").arg(uid), path})) {
-        // bootstrap failed — clean up the plist we just wrote
+    if (!file.commit()) {
+        m_lastError = QString("Cannot commit timer LaunchAgent: %1").arg(file.errorString());
+        emit errorOccurred(m_lastError);
+        return false;
+    }
+
+    if (!validateLaunchAgentPlist(path)) {
+        QFile::remove(path);
+        return false;
+    }
+
+    if (!bootstrapLaunchAgent(path)) {
         QFile::remove(path);
         return false;
     }
@@ -168,78 +216,59 @@ bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
 
 bool ShutdownBackendMacOS::cancelLaunchAgent()
 {
-    QString path = timerPlistPath();
+    const QString path = timerPlistPath();
     if (!QFile::exists(path))
-        return true;  // nothing to cancel
+        return true;
 
-    QString uid = QString::number(getuid());
-    runProcess("launchctl", QStringList{
-        "bootout", QString("gui/%1").arg(uid), path});
+    const QString domain = QString("gui/%1").arg(QString::number(getuid()));
+    runProcess("launchctl", {"bootout", domain, path}, 10000, false);
     QFile::remove(path);
     return true;
 }
 
-// -- Main scheduling logic ----------------------------------------------------
-
 bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action,
-                                             int seconds,
-                                             bool force)
+                                            int seconds,
+                                            bool force)
 {
-    // --- Sleep / Hibernate ---
-    // Always immediate — the countdown controls when this is called.
-    // Use MACOS_AE_SLEEP via MacOSSystemEvents.mm (Foundation only, no Carbon).
-    // No root required, no TCC, works on all macOS versions including Sequoia.
     if (action == ShutdownAction::Sleep || action == ShutdownAction::Hibernate) {
-        m_pending = false;
-        bool ok = sendSystemAppleEvent(MACOS_AE_SLEEP);
+        const bool ok = sendSystemAppleEvent(MACOS_AE_SLEEP);
         if (!ok) {
             m_lastError = "Failed to send sleep event to system process.";
             emit errorOccurred(m_lastError);
         }
+        m_pending = false;
         return ok;
     }
 
-    // --- Shutdown / Restart: immediate (T=0, timer fired) ---
     if (seconds <= 0) {
-        m_pending = true;
+        bool ok = false;
         if (force) {
-            // Force: skip save dialogs — genuinely requires root.
-            QString cmd = (action == ShutdownAction::Shutdown)
-                          ? "shutdown -h now"
-                          : "shutdown -r now";
-            return runElevated(cmd);
+            const QString cmd = (action == ShutdownAction::Shutdown)
+                                ? "shutdown -h now"
+                                : "shutdown -r now";
+            ok = runElevated(cmd);
         } else {
-            // Graceful: Core Event to system process via MacOSSystemEvents.mm.
-            // No TCC prompt, no root, no osascript. Identical to the user
-            // choosing Shut Down / Restart from the Apple menu.
-            unsigned int eventID = (action == ShutdownAction::Shutdown)
-                                   ? MACOS_AE_SHUTDOWN
-                                   : MACOS_AE_RESTART;
-            bool ok = sendSystemAppleEvent(eventID);
+            const unsigned int eventID = (action == ShutdownAction::Shutdown)
+                                         ? MACOS_AE_SHUTDOWN
+                                         : MACOS_AE_RESTART;
+            ok = sendSystemAppleEvent(eventID);
             if (!ok) {
                 m_lastError = "Failed to send shutdown/restart event to system process.";
                 emit errorOccurred(m_lastError);
             }
-            return ok;
         }
+        m_pending = ok;
+        return ok;
     }
 
-    // --- Shutdown / Restart: scheduled (seconds > 0) ---
-    // Register a LaunchAgent so the timer fires even if the app is closed.
-    m_pending = true;
-    return scheduleViaLaunchAgent(action, seconds, force);
+    const bool ok = scheduleViaLaunchAgent(action, seconds, force);
+    m_pending = ok;
+    return ok;
 }
 
 bool ShutdownBackendMacOS::cancelShutdown()
 {
-    // Remove the LaunchAgent if one was registered for a scheduled shutdown.
     cancelLaunchAgent();
-
-    // Note: we do NOT call runElevated("shutdown -c") here.
-    // Graceful mode uses sendSystemAppleEvent (fire-and-forget, cannot be
-    // cancelled once sent). Force mode only calls `shutdown` at T=0 (by
-    // which point cancellation is moot). Nothing to cancel at OS level.
-
     m_pending = false;
     return true;
 }

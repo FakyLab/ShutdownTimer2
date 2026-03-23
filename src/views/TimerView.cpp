@@ -148,6 +148,13 @@ void TimerView::buildUI()
 
     m_forceCheck = new QCheckBox(
         tr("Force (don't wait for apps to close)"), m_actionGroup);
+#if defined(Q_OS_MACOS)
+    m_forceCheck->setEnabled(false);
+    m_forceCheck->setChecked(false);
+    m_forceCheck->setToolTip(
+        tr("Force shutdown/restart is not available for timed actions on macOS.\n"
+           "macOS may ask for an administrator password when the timer expires."));
+#endif
     actionLayout->addLayout(actionRow);
     actionLayout->addWidget(m_forceCheck);
     layout->addWidget(m_actionGroup);
@@ -212,6 +219,11 @@ void TimerView::onStartClicked()
     ShutdownAction action = selectedAction();
     bool force = m_forceCheck->isChecked();
 
+#if defined(Q_OS_MACOS)
+    if (action == ShutdownAction::Shutdown || action == ShutdownAction::Restart)
+        force = false;
+#endif
+
     if (m_radioCountdown->isChecked()) {
         QTime t = m_countdownEdit->time();
         int totalSeconds = t.hour() * 3600 + t.minute() * 60 + t.second();
@@ -234,8 +246,13 @@ void TimerView::onModeToggled()
 void TimerView::onActionToggled()
 {
     bool isSuspend = m_radioHibernate->isChecked() || m_radioSleep->isChecked();
-    m_forceCheck->setEnabled(!isSuspend);
-    if (isSuspend)
+#if defined(Q_OS_MACOS)
+    const bool canForceTimedAction = false;
+#else
+    const bool canForceTimedAction = true;
+#endif
+    m_forceCheck->setEnabled(canForceTimedAction && !isSuspend);
+    if (isSuspend || !canForceTimedAction)
         m_forceCheck->setChecked(false);
 }
 
@@ -278,7 +295,12 @@ void TimerView::setRunningState(bool running)
     if (m_sleepAvailable)     m_radioSleep->setEnabled(!running);
 
     bool isSuspend = m_radioHibernate->isChecked() || m_radioSleep->isChecked();
-    m_forceCheck->setEnabled(!running && !isSuspend);
+#if defined(Q_OS_MACOS)
+    const bool canForceTimedAction = false;
+#else
+    const bool canForceTimedAction = true;
+#endif
+    m_forceCheck->setEnabled(!running && !isSuspend && canForceTimedAction);
 
     if (!running)
         m_countdownLabel->setText("--:--:--");
@@ -321,6 +343,12 @@ void TimerView::retranslate()
     if (m_radioSleep)     m_radioSleep->setText(tr("Sleep"));
     if (m_forceCheck)
         m_forceCheck->setText(tr("Force (don't wait for apps to close)"));
+#if defined(Q_OS_MACOS)
+    if (m_forceCheck)
+        m_forceCheck->setToolTip(
+            tr("Force shutdown/restart is not available for timed actions on macOS.\n"
+               "macOS may ask for an administrator password when the timer expires."));
+#endif
     if (m_startBtn)  m_startBtn->setText(tr("Start"));
     if (m_cancelBtn) m_cancelBtn->setText(tr("Cancel"));
     if (m_preset15m) m_preset15m->setText(tr("15 min"));

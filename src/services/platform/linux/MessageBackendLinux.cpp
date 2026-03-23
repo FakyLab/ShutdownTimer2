@@ -9,6 +9,18 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+namespace {
+QString quoteExecArg(const QString& arg)
+{
+    QString escaped = arg;
+    escaped.replace("\\", "\\\\");
+    escaped.replace("\"", "\\\"");
+    escaped.replace("$", "\\$");
+    escaped.replace("`", "\\`");
+    return "\"" + escaped + "\"";
+}
+}
+
 MessageBackendLinux::MessageBackendLinux(QObject* parent)
     : IMessageBackend(parent)
 {}
@@ -24,7 +36,7 @@ QString MessageBackendLinux::messageFilePath()
     // AppConfigLocation would give different paths depending on whether
     // applicationName and organizationName are set (they differ between the
     // main app and headless handlers like --auto-clear and --show-notification).
-    // GenericConfigLocation is always ~/.config/ — stable and context-independent.
+    // GenericConfigLocation is always ~/.config/ - stable and context-independent.
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
            + "/shutdowntimer/message.json";
 }
@@ -32,7 +44,7 @@ QString MessageBackendLinux::messageFilePath()
 QString MessageBackendLinux::autostartDesktopPath()
 {
     // ~/.config/autostart/shutdowntimer-notify.desktop
-    // XDG Desktop Application Autostart Specification — fires on any
+    // XDG Desktop Application Autostart Specification - fires on any
     // freedesktop-compliant DE (GNOME, KDE, XFCE, Cinnamon, MATE, etc.)
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
            + "/autostart/shutdowntimer-notify.desktop";
@@ -49,7 +61,6 @@ QString MessageBackendLinux::platformDescription() const
 
 bool MessageBackendLinux::write(const StartupMessage& msg)
 {
-    // Write message.json
     QString filePath = messageFilePath();
     QDir().mkpath(QFileInfo(filePath).path());
 
@@ -65,12 +76,9 @@ bool MessageBackendLinux::write(const StartupMessage& msg)
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     f.close();
 
-    // Write XDG autostart entry so the notification fires at next login
     if (!writeAutostartEntry()) {
-        // Non-fatal — message is saved, notification just won't auto-show
-        // The user can still manually trigger it or re-save.
-        m_lastError = tr("Message saved but autostart entry could not be written.");
-        // Return true anyway — the message itself is saved correctly
+        QFile::remove(filePath);
+        return false;
     }
 
     return true;
@@ -83,7 +91,7 @@ bool MessageBackendLinux::read(StartupMessage& out)
 
     QFile f(messageFilePath());
     if (!f.exists())
-        return true;  // no message set — not an error
+        return true;  // no message set - not an error
 
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_lastError = tr("Cannot read message file: %1").arg(f.errorString());
@@ -122,28 +130,27 @@ bool MessageBackendLinux::writeAutostartEntry()
     // squashfs mount (/tmp/.mount_xxx/usr/bin/ShutdownTimer) which is
     // session-specific and won't exist at the next login.
     // $APPIMAGE is set by the AppImage runtime to the actual .AppImage file
-    // path which is stable across sessions — use it when available.
+    // path which is stable across sessions - use it when available.
     QString exePath = qEnvironmentVariable("APPIMAGE");
     if (exePath.isEmpty())
         exePath = QCoreApplication::applicationFilePath();
 
     QFile f(desktopPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_lastError = tr("Cannot write autostart entry: %1").arg(f.errorString());
         return false;
+    }
 
     QTextStream out(&f);
     out << "[Desktop Entry]\n";
     out << "Type=Application\n";
     out << "Name=Shutdown Timer Notification\n";
     out << "Comment=Show pending Shutdown Timer message as a desktop notification\n";
-    out << "Exec=" << exePath << " --show-notification\n";
+    out << "Exec=" << quoteExecArg(exePath) << " --show-notification\n";
     out << "Icon=shutdowntimer\n";
     out << "Hidden=false\n";
-    // NoDisplay keeps it out of application menus
     out << "NoDisplay=true\n";
-    // X-GNOME-Autostart-enabled ensures GNOME respects it
     out << "X-GNOME-Autostart-enabled=true\n";
-    // Terminal=false — runs headlessly
     out << "Terminal=false\n";
     f.close();
 
