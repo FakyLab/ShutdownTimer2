@@ -99,12 +99,14 @@ elseif(APPLE)
         src/services/platform/macos/MessageBackendMacOS.cpp
         src/services/platform/macos/AutoClearBackendMacOS.cpp
         src/services/platform/macos/MacOSNotifier.mm
+        src/services/platform/macos/MacOSSystemEvents.mm
     )
     set(HEADERS_PLATFORM
         src/services/platform/macos/ShutdownBackendMacOS.h
         src/services/platform/macos/MessageBackendMacOS.h
         src/services/platform/macos/AutoClearBackendMacOS.h
         src/services/platform/macos/MacOSNotifier.h
+        src/services/platform/macos/MacOSSystemEvents.h
     )
 endif()
 
@@ -206,9 +208,8 @@ endif()
 
 if(APPLE)
     target_link_libraries(ShutdownTimer PRIVATE
-        "-framework CoreServices"
-        "-framework UserNotifications"
         "-framework Foundation"
+        "-framework UserNotifications"
     )
 endif()
 

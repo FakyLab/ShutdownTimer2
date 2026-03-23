@@ -31,53 +31,6 @@ bool ShutdownBackendMacOS::isSleepAvailable()
     return true;
 }
 
-// -- CoreServices Apple Event to kSystemProcess -------------------------------
-//
-// This is the same mechanism the Apple menu uses for Shut Down / Restart /
-// Sleep. It sends a Core Event directly to the system process (PSN {0,1}),
-// bypassing osascript and System Events entirely.
-//
-// No TCC prompt, no root required, no password dialog.
-// Works on macOS 10.6 → 15 Sequoia, including from headless LaunchAgents.
-//
-// eventID: kAEShutDown, kAERestart, kAESleep, kAEReallyLogOut
-
-bool ShutdownBackendMacOS::sendSystemAppleEvent(AEEventID eventID)
-{
-    // kSystemProcess is the reserved PSN that routes to the loginwindow /
-    // kernel power management subsystem — not to a named application.
-    // This is why it requires no TCC "Automation" consent.
-    static const ProcessSerialNumber kPSNOfSystemProcess = { 0, kSystemProcess };
-
-    AEAddressDesc targetDesc = { typeNull, nullptr };
-    OSStatus err = AECreateDesc(typeProcessSerialNumber,
-                                &kPSNOfSystemProcess,
-                                sizeof(kPSNOfSystemProcess),
-                                &targetDesc);
-    if (err != noErr)
-        return false;
-
-    AppleEvent event = { typeNull, nullptr };
-    err = AECreateAppleEvent(kCoreEventClass, eventID,
-                             &targetDesc,
-                             kAutoGenerateReturnID,
-                             kAnyTransactionID,
-                             &event);
-    AEDisposeDesc(&targetDesc);
-    if (err != noErr)
-        return false;
-
-    // kAENoReply: fire-and-forget. The system takes over immediately.
-    // We do not wait for a reply — the machine may shut down before one arrives.
-    AppleEvent reply = { typeNull, nullptr };
-    err = AESendMessage(&event, &reply, kAENoReply, kAEDefaultTimeout);
-    AEDisposeDesc(&event);
-    if (err == noErr)
-        AEDisposeDesc(&reply);
-
-    return (err == noErr);
-}
-
 // -- Helpers ------------------------------------------------------------------
 
 QString ShutdownBackendMacOS::timerPlistPath() const
@@ -234,12 +187,11 @@ bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action,
 {
     // --- Sleep / Hibernate ---
     // Always immediate — the countdown controls when this is called.
-    // Use kAESleep via the system Apple Event path. This requires no root,
-    // no TCC, and works on all macOS versions including Sequoia (where
-    // pmset sleepnow started requiring root on some configurations).
+    // Use MACOS_AE_SLEEP via MacOSSystemEvents.mm (Foundation only, no Carbon).
+    // No root required, no TCC, works on all macOS versions including Sequoia.
     if (action == ShutdownAction::Sleep || action == ShutdownAction::Hibernate) {
         m_pending = false;
-        bool ok = sendSystemAppleEvent(kAESleep);
+        bool ok = sendSystemAppleEvent(MACOS_AE_SLEEP);
         if (!ok) {
             m_lastError = "Failed to send sleep event to system process.";
             emit errorOccurred(m_lastError);
@@ -252,22 +204,17 @@ bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action,
         m_pending = true;
         if (force) {
             // Force: skip save dialogs — genuinely requires root.
-            // runElevated blocks; caller (TimerController) runs on the main
-            // thread, so this will freeze the UI briefly while the password
-            // dialog is shown. Acceptable for force mode — user explicitly
-            // chose to skip save dialogs.
             QString cmd = (action == ShutdownAction::Shutdown)
                           ? "shutdown -h now"
                           : "shutdown -r now";
             return runElevated(cmd);
         } else {
-            // Graceful: CoreServices Apple Event to kSystemProcess.
-            // No TCC prompt, no root, no osascript.
-            // Identical to the user choosing Shut Down / Restart from the
-            // Apple menu — apps get a chance to save their documents.
-            AEEventID eventID = (action == ShutdownAction::Shutdown)
-                                ? kAEShutDown
-                                : kAERestart;
+            // Graceful: Core Event to system process via MacOSSystemEvents.mm.
+            // No TCC prompt, no root, no osascript. Identical to the user
+            // choosing Shut Down / Restart from the Apple menu.
+            unsigned int eventID = (action == ShutdownAction::Shutdown)
+                                   ? MACOS_AE_SHUTDOWN
+                                   : MACOS_AE_RESTART;
             bool ok = sendSystemAppleEvent(eventID);
             if (!ok) {
                 m_lastError = "Failed to send shutdown/restart event to system process.";
@@ -279,8 +226,6 @@ bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action,
 
     // --- Shutdown / Restart: scheduled (seconds > 0) ---
     // Register a LaunchAgent so the timer fires even if the app is closed.
-    // The headless --execute-shutdown handler uses sendSystemAppleEvent too,
-    // so graceful mode needs no password even when fired from a LaunchAgent.
     m_pending = true;
     return scheduleViaLaunchAgent(action, seconds, force);
 }
@@ -291,12 +236,9 @@ bool ShutdownBackendMacOS::cancelShutdown()
     cancelLaunchAgent();
 
     // Note: we do NOT call runElevated("shutdown -c") here.
-    // The old code called it unconditionally, which prompted for a password
-    // every time the user cancelled — even graceful timers that never ran
-    // `shutdown` at all. Since graceful mode now uses sendSystemAppleEvent
-    // (fire-and-forget, cannot be cancelled once sent), and force mode only
-    // calls `shutdown` at T=0 (by which point cancellation is moot), there
-    // is nothing to cancel at the OS level for the common case.
+    // Graceful mode uses sendSystemAppleEvent (fire-and-forget, cannot be
+    // cancelled once sent). Force mode only calls `shutdown` at T=0 (by
+    // which point cancellation is moot). Nothing to cancel at OS level.
 
     m_pending = false;
     return true;

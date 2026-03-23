@@ -30,7 +30,7 @@
 #  include <unistd.h>
 #  include <QJsonDocument>
 #  include <QJsonObject>
-#  include <CoreServices/CoreServices.h>
+#  include "services/platform/macos/MacOSSystemEvents.h"
 #  include "services/platform/macos/MacOSNotifier.h"
 #  include "services/platform/macos/MessageBackendMacOS.h"
 #  include "services/platform/macos/AutoClearBackendMacOS.h"
@@ -142,12 +142,12 @@ static bool handleAutoClear(int argc, char* argv[])
                     QString("do shell script \"%1\" with administrator privileges")
                     .arg(cmd)});
         } else {
-            // Graceful: CoreServices Apple Event to kSystemProcess.
+            // Graceful: Core Event to system process via MacOSSystemEvents.mm.
             // No TCC prompt, no root, no osascript middle-man.
-            // Works headlessly from a LaunchAgent — kSystemProcess is a
-            // kernel-level PSN, not a named app, so TCC does not apply.
-            AEEventID eventID = isShutdown ? kAEShutDown : kAERestart;
-            ShutdownBackendMacOS::sendSystemAppleEvent(eventID);
+            // Works headlessly from a LaunchAgent — targets system PSN {0,1},
+            // not a named app, so TCC Automation consent does not apply.
+            unsigned int eventID = isShutdown ? MACOS_AE_SHUTDOWN : MACOS_AE_RESTART;
+            MacOSSendSystemAppleEvent(eventID);
         }
         return true;
     }

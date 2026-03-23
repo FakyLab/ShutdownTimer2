@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../../interfaces/IShutdownBackend.h"
+#include "MacOSSystemEvents.h"
 #include <QProcess>
 #include <QString>
-#include <CoreServices/CoreServices.h>
 
 class ShutdownBackendMacOS : public IShutdownBackend
 {
@@ -29,12 +29,15 @@ public:
     static constexpr const char* kTimerAgentLabel =
         "com.fakylab.shutdowntimer.timer";
 
-    // Send a CoreServices Apple Event directly to kSystemProcess.
-    // This is the same path the Apple menu uses — no TCC prompt, no root,
-    // no osascript. Works on macOS 10.6 → 15 Sequoia.
-    // eventID: kAEShutDown, kAERestart, kAESleep, kAEReallyLogOut
-    // Returns true on noErr.
-    static bool sendSystemAppleEvent(AEEventID eventID);
+    // Send a Core Event directly to the system process (loginwindow /
+    // kernel power manager). No TCC prompt, no root, no osascript.
+    // Works on macOS 10.6 → 15 Sequoia, including from headless LaunchAgents.
+    // eventID: one of the MACOS_AE_* constants from MacOSSystemEvents.h
+    // Returns true on success.
+    static bool sendSystemAppleEvent(unsigned int eventID)
+    {
+        return MacOSSendSystemAppleEvent(eventID) != 0;
+    }
 
 private:
     // Run a shell command as root via osascript (native password dialog).
