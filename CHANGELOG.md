@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Platform notes
 - macOS: app is ad-hoc signed (not notarized). On first launch use right-click → Open to bypass Gatekeeper.
-- macOS: graceful shutdown/restart uses System Events (no root); force mode uses `shutdown` via osascript elevation.
+- macOS: graceful shutdown/restart/sleep use CoreServices Apple Events to `kSystemProcess` — no root, no TCC prompt, identical to the Apple menu. Force mode uses `shutdown` via osascript elevation.
 - macOS: the startup message feature is fully unprivileged — no root, no password prompt required.
 - Linux: the message feature is fully unprivileged — no root, no polkit, no D-Bus helper required.
 

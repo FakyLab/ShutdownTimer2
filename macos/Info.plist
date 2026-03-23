@@ -32,6 +32,10 @@
     <key>NSAppleEventsUsageDescription</key>
     <string>Shutdown Timer uses Apple Events to request administrator privileges for performing shutdown and restart actions.</string>
 
+    <!-- Required for UNUserNotificationCenter (startup message notifications) -->
+    <key>NSUserNotificationUsageDescription</key>
+    <string>Shutdown Timer uses notifications to display your saved startup message after login.</string>
+
     <!-- Required for System Events access (sleep action) -->
     <key>NSAppleScriptEnabled</key>
     <true/>

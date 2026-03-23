@@ -98,11 +98,13 @@ elseif(APPLE)
         src/services/platform/macos/ShutdownBackendMacOS.cpp
         src/services/platform/macos/MessageBackendMacOS.cpp
         src/services/platform/macos/AutoClearBackendMacOS.cpp
+        src/services/platform/macos/MacOSNotifier.mm
     )
     set(HEADERS_PLATFORM
         src/services/platform/macos/ShutdownBackendMacOS.h
         src/services/platform/macos/MessageBackendMacOS.h
         src/services/platform/macos/AutoClearBackendMacOS.h
+        src/services/platform/macos/MacOSNotifier.h
     )
 endif()
 
@@ -200,6 +202,14 @@ if(WIN32)
         UNICODE _UNICODE WINVER=0x0A00 _WIN32_WINNT=0x0A00
     )
 
+endif()
+
+if(APPLE)
+    target_link_libraries(ShutdownTimer PRIVATE
+        "-framework CoreServices"
+        "-framework UserNotifications"
+        "-framework Foundation"
+    )
 endif()
 
 # ── Compiler warnings ─────────────────────────────────────────────────────────

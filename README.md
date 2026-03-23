@@ -56,7 +56,7 @@ When you click **Start**, `TimerController` validates the input and delegates to
 
 - **Windows** — `InitiateSystemShutdownExW` for Shutdown/Restart; `SetSuspendState` for Hibernate/Sleep. Acquires `SE_SHUTDOWN_NAME` privilege first.
 - **Linux** — `systemctl hibernate/suspend` for sleep states; `shutdown --poweroff/--reboot` for Shutdown/Restart.
-- **macOS** — `pmset sleepnow` for Sleep and Hibernate; `shutdown -h/-r` for Shutdown/Restart.
+- **macOS** — CoreServices `kAESleep` Apple Event (no root) for Sleep and Hibernate; CoreServices `kAEShutDown`/`kAERestart` Apple Events (no root, no TCC) for graceful Shutdown/Restart; `shutdown -h/-r` via osascript elevation for force mode only.
 
 ### Startup Message
 
@@ -104,7 +104,7 @@ The startup message feature on Linux requires **no root access** — it stores t
 
 - The app is **ad-hoc signed** — not notarized with Apple. On first launch, macOS may show a security warning. To open it: **right-click the app → Open**, then click **Open** in the dialog. After the first launch it opens normally.
 - The startup message feature requires **no root access**. The message is stored as a user-owned JSON file and delivered as a desktop notification after the next login via a LaunchAgent.
-- Shutdown and restart use System Events (graceful, no root) or `shutdown` via osascript elevation (force mode only).
+- Graceful shutdown and restart use CoreServices Apple Events sent directly to `kSystemProcess` — no root, no TCC prompt, identical to clicking "Shut Down" from the Apple menu. Force mode uses `shutdown -h/-r` via osascript elevation.
 - Sleep is always available; hibernate availability depends on `pmset hibernatemode`.
 - Auto-clear uses a LaunchAgent at `~/Library/LaunchAgents/`.
 

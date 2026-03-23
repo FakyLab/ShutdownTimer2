@@ -5,13 +5,14 @@
 
 // macOS message backend — post-login desktop notification.
 //
-// No root required. The message is stored as a user-owned JSON file and
-// delivered via a LaunchAgent that fires ShutdownTimer --show-notification
-// at the next login. The notification is shown via osascript display notification
-// which works on all macOS versions without any special entitlements.
+// No root required. The message is stored as a user-owned JSON file at a
+// fixed path and delivered via a LaunchAgent that fires
+// ShutdownTimer --show-notification at the next login.
+// The notification is posted via UNUserNotificationCenter, attributed to
+// "Shutdown Timer" — not to osascript.
 //
 // Storage:
-//   ~/Library/Application Support/ShutdownTimer/message.json
+//   ~/Library/Application Support/ShutdownTimer/message.json  (fixed path)
 //   ~/Library/LaunchAgents/com.fakylab.shutdowntimer.notify.plist
 
 class MessageBackendMacOS : public IMessageBackend
@@ -28,13 +29,14 @@ public:
     bool    isPostLogin() const           override { return true; }
     QString lastError() const             override { return m_lastError; }
 
-    // Path helpers — shared with main.cpp --show-notification handler
+    // Path helpers — shared with main.cpp --show-notification handler.
+    // Both return fixed paths independent of QCoreApplication state,
+    // so GUI and headless contexts always agree on the file locations.
     static QString messageFilePath();
     static QString notifyPlistPath();
 
 private:
     bool writeNotifyPlist();
-    bool runProcess(const QString& program, const QStringList& args);
 
     QString m_lastError;
 

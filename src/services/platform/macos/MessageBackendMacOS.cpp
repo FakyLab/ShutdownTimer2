@@ -5,11 +5,9 @@
 #include <QFileInfo>
 #include <QTextStream>
 #include <QProcess>
-#include <QStandardPaths>
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <unistd.h>
 
 MessageBackendMacOS::MessageBackendMacOS(QObject* parent)
     : IMessageBackend(parent)
@@ -19,9 +17,14 @@ MessageBackendMacOS::MessageBackendMacOS(QObject* parent)
 
 QString MessageBackendMacOS::messageFilePath()
 {
-    // ~/Library/Application Support/ShutdownTimer/message.json
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-           + "/message.json";
+    // Hardcoded path — avoids QStandardPaths::AppDataLocation, which returns
+    // different results depending on whether QCoreApplication has org/app name
+    // set (GUI mode) or not (headless --show-notification mode).
+    // GUI:      ~/Library/Application Support/ShutdownTimer/ShutdownTimer/message.json
+    // Headless: ~/Library/Application Support/ShutdownTimer/message.json
+    // Using a fixed path makes both modes agree on where the file lives.
+    return QDir::homePath()
+           + "/Library/Application Support/ShutdownTimer/message.json";
 }
 
 QString MessageBackendMacOS::notifyPlistPath()
@@ -39,21 +42,9 @@ QString MessageBackendMacOS::platformDescription() const
     return tr("macOS desktop");
 }
 
-bool MessageBackendMacOS::runProcess(const QString& program, const QStringList& args)
-{
-    QProcess proc;
-    proc.start(program, args);
-    proc.waitForFinished(5000);
-    if (proc.exitCode() != 0) {
-        m_lastError = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-        return false;
-    }
-    return true;
-}
-
 bool MessageBackendMacOS::write(const StartupMessage& msg)
 {
-    // Write message.json
+    // Write message.json to the fixed path
     QString filePath = messageFilePath();
     QDir().mkpath(QFileInfo(filePath).path());
 
@@ -69,7 +60,10 @@ bool MessageBackendMacOS::write(const StartupMessage& msg)
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     f.close();
 
-    // Write and register the notification LaunchAgent
+    // Write the notification LaunchAgent plist.
+    // This is just a file write — no launchctl bootstrap.
+    // launchd scans ~/Library/LaunchAgents/ at the start of the next session
+    // and loads any new plists it finds there.
     if (!writeNotifyPlist()) {
         m_lastError = tr("Message saved but notification agent could not be registered.");
         // Non-fatal — message is saved, notification just won't auto-show
@@ -108,17 +102,15 @@ bool MessageBackendMacOS::read(StartupMessage& out)
 
 bool MessageBackendMacOS::clear()
 {
-    // Remove message file
+    // Remove the message JSON file.
     QFile::remove(messageFilePath());
 
-    // Bootout and remove notification LaunchAgent if it exists
-    QString plist = notifyPlistPath();
-    if (QFile::exists(plist)) {
-        QString uid = QString::number(getuid());
-        runProcess("launchctl",
-            QStringList{"bootout", QString("gui/%1").arg(uid), plist});
-        QFile::remove(plist);
-    }
+    // Remove the notification LaunchAgent plist file.
+    // Do NOT call launchctl bootout here — if the notify agent is currently
+    // running (firing at login right now), booting it out would kill it
+    // mid-execution. Deleting the plist file is sufficient: launchd will not
+    // re-load it at the next session since the file is gone.
+    QFile::remove(notifyPlistPath());
 
     return true;
 }
@@ -149,24 +141,17 @@ bool MessageBackendMacOS::writeNotifyPlist()
     out << "        <string>" << exePath << "</string>\n";
     out << "        <string>--show-notification</string>\n";
     out << "    </array>\n";
-    // RunAtLoad=true fires the agent once when launchd loads it at next login.
-    // We do NOT call launchctl bootstrap here — that would fire it immediately
-    // in the current session. Instead we just write the plist and let launchd
-    // pick it up automatically from ~/Library/LaunchAgents/ at the next login.
+    // RunAtLoad fires once when launchd loads this agent at the next login.
+    // Do NOT call launchctl bootstrap now — that would fire --show-notification
+    // immediately in the current session, consuming the message before logout.
     out << "    <key>RunAtLoad</key>\n";
     out << "    <true/>\n";
-    // LaunchOnlyOnce prevents re-firing after the process exits normally
+    // LaunchOnlyOnce: don't restart the process after it exits.
     out << "    <key>LaunchOnlyOnce</key>\n";
     out << "    <true/>\n";
     out << "</dict>\n";
     out << "</plist>\n";
     f.close();
-
-    // Do NOT call launchctl bootstrap — writing the plist to
-    // ~/Library/LaunchAgents/ is sufficient. launchd loads all agents
-    // in that directory automatically at the start of the next user session.
-    // Calling bootstrap would fire --show-notification immediately NOW,
-    // which would consume and delete the message before the user logs out.
 
     return true;
 }

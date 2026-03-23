@@ -30,7 +30,11 @@
 #  include <unistd.h>
 #  include <QJsonDocument>
 #  include <QJsonObject>
+#  include <CoreServices/CoreServices.h>
+#  include "services/platform/macos/MacOSNotifier.h"
 #  include "services/platform/macos/MessageBackendMacOS.h"
+#  include "services/platform/macos/AutoClearBackendMacOS.h"
+#  include "services/platform/macos/ShutdownBackendMacOS.h"
 #endif
 
 #if defined(Q_OS_WIN)
@@ -50,21 +54,18 @@ static bool handleAutoClear(int argc, char* argv[])
 
 #if defined(Q_OS_MACOS)
     // --show-notification: fired by the notification LaunchAgent at next login.
-    // Reads message.json, shows a desktop notification via osascript, cleans up.
+    // Reads message.json, posts a native UNUserNotification attributed to
+    // "Shutdown Timer", then handles cleanup based on the auto-clear sentinel.
     // No root required — all files are user-owned.
     if (strcmp(argv[1], "--show-notification") == 0) {
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
 
-        QString msgPath   = MessageBackendMacOS::messageFilePath();
-        QString plistPath = MessageBackendMacOS::notifyPlistPath();
-        QString uid       = QString::number(getuid());
+        QString msgPath      = MessageBackendMacOS::messageFilePath();
+        QString plistPath    = MessageBackendMacOS::notifyPlistPath();
+        QString sentinelPath = AutoClearBackendMacOS::sentinelPath();
 
-        // Cancel the LaunchAgent first so it doesn't fire again
-        QProcess::execute("launchctl",
-            QStringList{"bootout", QString("gui/%1").arg(uid), plistPath});
-
-        // Read the message
+        // Read the message first — before any cleanup
         QFile f(msgPath);
         if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
             QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
@@ -76,47 +77,37 @@ static bool handleAutoClear(int argc, char* argv[])
                 QString body  = obj.value("body").toString().trimmed();
 
                 if (!title.isEmpty() || !body.isEmpty()) {
-                    // Build the AppleScript display notification command.
-                    // Escape \ and " for safe embedding in an AppleScript
-                    // double-quoted string (only special chars in AS strings).
-                    auto appleEscape = [](const QString& s) -> QString {
-                        QString r = s;
-                        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
-                        r.replace(QLatin1String("\""),  QLatin1String("\\\""));
-                        return r;
-                    };
-
-                    // Build the AppleScript notification command:
-                    // title     = fixed "Shutdown Timer" (shown in header)
-                    // subtitle  = user message title
-                    // body text = user message body
-                    // sound     = Ping plays on arrival
-                    QString script =
-                        QLatin1String("display notification \"")
-                        + appleEscape(body)
-                        + QLatin1String("\" with title \"Shutdown Timer\"")
-                        + QLatin1String(" subtitle \"")
-                        + appleEscape(title)
-                        + QLatin1String("\" sound name \"Ping\"");
-
-                    // Small delay to ensure the notification daemon is ready
-                    QThread::msleep(2000);
-
-                    QProcess::execute("osascript", QStringList{"-e", script});
+                    // Post via UNUserNotificationCenter — attributed to
+                    // "Shutdown Timer", not osascript. Requests permission
+                    // on first use (one-time system dialog). Blocks until
+                    // the notification is queued so it survives process exit.
+                    MacOSPostNotification(title.toUtf8().constData(),
+                                          body.toUtf8().constData());
                 }
             }
         }
 
-        // Clean up — remove message file and plist unconditionally
-        QFile::remove(msgPath);
+        // Remove the notify plist FILE so launchd doesn't re-load it next
+        // session. Do NOT call launchctl bootout — we are the running agent,
+        // and booting out self mid-execution is undefined behaviour on modern
+        // launchd. Deleting the file is sufficient.
         QFile::remove(plistPath);
+
+        // Auto-clear: if the sentinel file exists, the user chose
+        // "auto-clear after next login" — delete the message now.
+        // If no sentinel, the message is persistent — leave it in place
+        // so the user can load it again.
+        if (QFile::exists(sentinelPath)) {
+            QFile::remove(msgPath);
+            QFile::remove(sentinelPath);
+        }
 
         return true;
     }
 
     // --execute-shutdown: fired by the LaunchAgent timer at the scheduled time.
-    // Performs the actual shutdown/restart — graceful via System Events (no root),
-    // or force via osascript elevation.
+    // Performs the actual shutdown/restart — graceful via CoreServices Apple
+    // Event to kSystemProcess (no TCC, no root), or force via osascript elevation.
     // Arguments: --execute-shutdown --action shutdown|restart --force 0|1
     if (strcmp(argv[1], "--execute-shutdown") == 0) {
         int argcCopy = argc;
@@ -144,19 +135,19 @@ static bool handleAutoClear(int argc, char* argv[])
         QFile::remove(plistPath);
 
         if (force) {
-            // Force mode: skip save dialogs — requires root via osascript
+            // Force mode: skip save dialogs — genuinely requires root.
             QString cmd = isShutdown ? "shutdown -h now" : "shutdown -r now";
             QProcess::execute("osascript",
                 QStringList{"-e",
                     QString("do shell script \"%1\" with administrator privileges")
                     .arg(cmd)});
         } else {
-            // Graceful: System Events — no root, triggers normal save dialogs,
-            // same as user choosing Shut Down/Restart from the Apple menu.
-            QString event = isShutdown ? "shut down" : "restart";
-            QProcess::execute("osascript",
-                QStringList{"-e",
-                    QString("tell application \"System Events\" to %1").arg(event)});
+            // Graceful: CoreServices Apple Event to kSystemProcess.
+            // No TCC prompt, no root, no osascript middle-man.
+            // Works headlessly from a LaunchAgent — kSystemProcess is a
+            // kernel-level PSN, not a named app, so TCC does not apply.
+            AEEventID eventID = isShutdown ? kAEShutDown : kAERestart;
+            ShutdownBackendMacOS::sendSystemAppleEvent(eventID);
         }
         return true;
     }
@@ -290,29 +281,22 @@ static bool handleAutoClear(int argc, char* argv[])
     }
 #elif defined(Q_OS_MACOS)
     {
-        // --auto-clear on macOS: entirely unprivileged.
-        // Message is stored as user-owned files — no root needed.
+        // --auto-clear on macOS.
+        // The primary auto-clear path is now handled inline at the end of
+        // --show-notification (which checks for the sentinel file). This
+        // handler is kept as belt-and-suspenders for cases where the user
+        // manually triggers a clear from the UI (MessageController::onClear
+        // calls AutoClearBackendMacOS::cancel which removes the sentinel,
+        // then MessageBackendMacOS::clear which removes message.json + plist).
+        // Nothing to do here that isn't already handled by those calls.
         int argcCopy = argc;
         QCoreApplication coreApp(argcCopy, argv);
 
-        QString uid = QString::number(getuid());
-
-        // Cancel the notification LaunchAgent so the user doesn't get a
-        // stale notification after the message has been auto-cleared.
-        // Do this before anything else to prevent a race with --show-notification.
-        QString notifyPlist = MessageBackendMacOS::notifyPlistPath();
-        QProcess::execute("launchctl",
-            QStringList{"bootout", QString("gui/%1").arg(uid), notifyPlist});
-        QFile::remove(notifyPlist);
+        // Defensive cleanup: remove any leftover files in case a previous
+        // session's cleanup was interrupted.
         QFile::remove(MessageBackendMacOS::messageFilePath());
-
-        // Remove the autoclear LaunchAgent plist itself
-        QString home = QDir::homePath();
-        QString autoclearPlist =
-            home + "/Library/LaunchAgents/com.fakylab.shutdowntimer.autoclear.plist";
-        QProcess::execute("launchctl",
-            QStringList{"bootout", QString("gui/%1").arg(uid), autoclearPlist});
-        QFile::remove(autoclearPlist);
+        QFile::remove(MessageBackendMacOS::notifyPlistPath());
+        QFile::remove(AutoClearBackendMacOS::sentinelPath());
     }
 #endif
 

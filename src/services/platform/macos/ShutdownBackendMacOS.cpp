@@ -31,6 +31,53 @@ bool ShutdownBackendMacOS::isSleepAvailable()
     return true;
 }
 
+// -- CoreServices Apple Event to kSystemProcess -------------------------------
+//
+// This is the same mechanism the Apple menu uses for Shut Down / Restart /
+// Sleep. It sends a Core Event directly to the system process (PSN {0,1}),
+// bypassing osascript and System Events entirely.
+//
+// No TCC prompt, no root required, no password dialog.
+// Works on macOS 10.6 → 15 Sequoia, including from headless LaunchAgents.
+//
+// eventID: kAEShutDown, kAERestart, kAESleep, kAEReallyLogOut
+
+bool ShutdownBackendMacOS::sendSystemAppleEvent(AEEventID eventID)
+{
+    // kSystemProcess is the reserved PSN that routes to the loginwindow /
+    // kernel power management subsystem — not to a named application.
+    // This is why it requires no TCC "Automation" consent.
+    static const ProcessSerialNumber kPSNOfSystemProcess = { 0, kSystemProcess };
+
+    AEAddressDesc targetDesc = { typeNull, nullptr };
+    OSStatus err = AECreateDesc(typeProcessSerialNumber,
+                                &kPSNOfSystemProcess,
+                                sizeof(kPSNOfSystemProcess),
+                                &targetDesc);
+    if (err != noErr)
+        return false;
+
+    AppleEvent event = { typeNull, nullptr };
+    err = AECreateAppleEvent(kCoreEventClass, eventID,
+                             &targetDesc,
+                             kAutoGenerateReturnID,
+                             kAnyTransactionID,
+                             &event);
+    AEDisposeDesc(&targetDesc);
+    if (err != noErr)
+        return false;
+
+    // kAENoReply: fire-and-forget. The system takes over immediately.
+    // We do not wait for a reply — the machine may shut down before one arrives.
+    AppleEvent reply = { typeNull, nullptr };
+    err = AESendMessage(&event, &reply, kAENoReply, kAEDefaultTimeout);
+    AEDisposeDesc(&event);
+    if (err == noErr)
+        AEDisposeDesc(&reply);
+
+    return (err == noErr);
+}
+
 // -- Helpers ------------------------------------------------------------------
 
 QString ShutdownBackendMacOS::timerPlistPath() const
@@ -56,8 +103,9 @@ bool ShutdownBackendMacOS::runProcess(const QString& program, const QStringList&
 
 bool ShutdownBackendMacOS::runElevated(const QString& shellCmd)
 {
-    // Write AppleScript to a temp file — avoids inline escaping issues.
-    // shellCmd must contain only double-quote-safe chars (fixed system commands).
+    // Used only for force-mode shutdown/restart — the only case that genuinely
+    // needs root. Must be called from a background thread; it blocks until
+    // the user authenticates or cancels (up to 30 s).
     QString escaped = shellCmd;
     escaped.replace("\\", "\\\\");
     escaped.replace("\"", "\\\"");
@@ -97,9 +145,8 @@ bool ShutdownBackendMacOS::runElevated(const QString& shellCmd)
 // wall-clock time even if the app is closed.
 //
 // The agent runs: ShutdownTimer --execute-shutdown --action shutdown|restart --force 0|1
-// The headless handler in main.cpp performs the actual shutdown.
-//
-// This mirrors exactly how AutoClearBackendMacOS works for the message clear.
+// The headless handler in main.cpp performs the actual shutdown via
+// sendSystemAppleEvent() — no TCC, no root for graceful mode.
 
 bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
                                                    int seconds,
@@ -109,9 +156,6 @@ bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
     QString actionStr  = (action == ShutdownAction::Shutdown) ? "shutdown" : "restart";
     QString forceStr   = force ? "1" : "0";
     QString exePath    = QCoreApplication::applicationFilePath();
-
-    // For AppImage this would be wrong, but we're macOS-only here.
-    // For a DMG/app bundle, applicationFilePath() is the binary inside the .app.
 
     QString path = timerPlistPath();
     QDir().mkpath(QFileInfo(path).path());
@@ -142,8 +186,12 @@ bool ShutdownBackendMacOS::scheduleViaLaunchAgent(ShutdownAction action,
     out << "    </array>\n";
     out << "    <key>StartCalendarInterval</key>\n";
     out << "    <dict>\n";
+    // Include Hour, Minute, AND Second for full precision.
+    // Without Second, launchd fires at the start of the target minute,
+    // which can be up to 59 seconds early.
     out << "        <key>Hour</key>   <integer>" << fireTime.time().hour()   << "</integer>\n";
     out << "        <key>Minute</key> <integer>" << fireTime.time().minute() << "</integer>\n";
+    out << "        <key>Second</key> <integer>" << fireTime.time().second() << "</integer>\n";
     out << "    </dict>\n";
     // LaunchOnlyOnce: the handler removes the plist after running,
     // so this prevents repeated daily firings if removal somehow fails.
@@ -185,63 +233,70 @@ bool ShutdownBackendMacOS::scheduleShutdown(ShutdownAction action,
                                              bool force)
 {
     // --- Sleep / Hibernate ---
-    // These are immediate operations — the countdown just controls when
-    // scheduleShutdown() is called, not when sleep happens.
-    // Try pmset directly (works without root on most configs).
-    // Fall back to osascript elevation on Sequoia where pmset needs root.
+    // Always immediate — the countdown controls when this is called.
+    // Use kAESleep via the system Apple Event path. This requires no root,
+    // no TCC, and works on all macOS versions including Sequoia (where
+    // pmset sleepnow started requiring root on some configurations).
     if (action == ShutdownAction::Sleep || action == ShutdownAction::Hibernate) {
         m_pending = false;
-        if (runProcess("pmset", QStringList{"sleepnow"}))
-            return true;
-        return runElevated("pmset sleepnow");
+        bool ok = sendSystemAppleEvent(kAESleep);
+        if (!ok) {
+            m_lastError = "Failed to send sleep event to system process.";
+            emit errorOccurred(m_lastError);
+        }
+        return ok;
     }
 
-    // --- Shutdown / Restart: immediate ---
+    // --- Shutdown / Restart: immediate (T=0, timer fired) ---
     if (seconds <= 0) {
         m_pending = true;
         if (force) {
-            // Force: skip save dialogs — requires root
+            // Force: skip save dialogs — genuinely requires root.
+            // runElevated blocks; caller (TimerController) runs on the main
+            // thread, so this will freeze the UI briefly while the password
+            // dialog is shown. Acceptable for force mode — user explicitly
+            // chose to skip save dialogs.
             QString cmd = (action == ShutdownAction::Shutdown)
                           ? "shutdown -h now"
                           : "shutdown -r now";
             return runElevated(cmd);
         } else {
-            // Graceful: trigger via System Events — no root needed,
-            // same as user choosing Shut Down / Restart from the Apple menu.
-            // Open apps will show their "save changes?" dialogs.
-            QString event = (action == ShutdownAction::Shutdown)
-                            ? "shut down"
-                            : "restart";
-            return runProcess("osascript",
-                QStringList{"-e",
-                    QString("tell application \"System Events\" to %1").arg(event)});
+            // Graceful: CoreServices Apple Event to kSystemProcess.
+            // No TCC prompt, no root, no osascript.
+            // Identical to the user choosing Shut Down / Restart from the
+            // Apple menu — apps get a chance to save their documents.
+            AEEventID eventID = (action == ShutdownAction::Shutdown)
+                                ? kAEShutDown
+                                : kAERestart;
+            bool ok = sendSystemAppleEvent(eventID);
+            if (!ok) {
+                m_lastError = "Failed to send shutdown/restart event to system process.";
+                emit errorOccurred(m_lastError);
+            }
+            return ok;
         }
     }
 
-    // --- Shutdown / Restart: scheduled ---
+    // --- Shutdown / Restart: scheduled (seconds > 0) ---
     // Register a LaunchAgent so the timer fires even if the app is closed.
-    // The agent runs our --execute-shutdown headless handler at the target time.
-    // Password prompt (if needed for force mode) happens at that time.
-    // For graceful mode no password is needed — System Events handles it.
+    // The headless --execute-shutdown handler uses sendSystemAppleEvent too,
+    // so graceful mode needs no password even when fired from a LaunchAgent.
     m_pending = true;
     return scheduleViaLaunchAgent(action, seconds, force);
 }
 
 bool ShutdownBackendMacOS::cancelShutdown()
 {
-    // Kill any in-process delayed shutdown
-    if (m_delayedProcess) {
-        m_delayedProcess->kill();
-        m_delayedProcess->deleteLater();
-        m_delayedProcess = nullptr;
-    }
-
-    // Remove the LaunchAgent if one was registered
+    // Remove the LaunchAgent if one was registered for a scheduled shutdown.
     cancelLaunchAgent();
 
-    // Cancel any native shutdown scheduled via `shutdown +N`
-    // (belt-and-suspenders — runElevated is tolerant of no scheduled shutdown)
-    runElevated("shutdown -c 2>/dev/null || true");
+    // Note: we do NOT call runElevated("shutdown -c") here.
+    // The old code called it unconditionally, which prompted for a password
+    // every time the user cancelled — even graceful timers that never ran
+    // `shutdown` at all. Since graceful mode now uses sendSystemAppleEvent
+    // (fire-and-forget, cannot be cancelled once sent), and force mode only
+    // calls `shutdown` at T=0 (by which point cancellation is moot), there
+    // is nothing to cancel at the OS level for the common case.
 
     m_pending = false;
     return true;

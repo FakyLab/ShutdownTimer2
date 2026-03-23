@@ -38,7 +38,7 @@ src/
     ├── platform/
     │   ├── windows/                    Win32 + Registry + COM Task Scheduler
     │   ├── linux/                      systemctl + ~/.config/ message file + XDG autostart
-    │   └── macos/                      pmset + osascript + LaunchAgent notification
+    │   └── macos/                      CoreServices kAEShutDown/kAERestart/kAESleep + LaunchAgent notification
     └── PlatformServiceFactory.*        Picks correct backends at runtime/compile time
 ```
 
@@ -95,7 +95,7 @@ PlatformServiceFactory::create()
 │               (no root required — fully unprivileged)
 │
 └── macOS
-    ├── ShutdownBackendMacOS     (pmset / shutdown — osascript elevation for force mode)
+    ├── ShutdownBackendMacOS     (CoreServices kAEShutDown/kAERestart/kAESleep — no root, no TCC; osascript elevation for force mode only)
     ├── MessageBackendMacOS      (LaunchAgent + osascript display notification — no root)
     └── AutoClearBackendMacOS    (LaunchAgent plist)
 ```
