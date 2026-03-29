@@ -1,8 +1,16 @@
 #include "TimerView.h"
 
+#include <QCoreApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFont>
+
+namespace {
+QString trMainWindow(const char* text)
+{
+    return QCoreApplication::translate("MainWindow", text);
+}
+}
 
 TimerView::TimerView(bool hibernateAvailable, bool sleepAvailable, QWidget* parent)
     : QWidget(parent)
@@ -18,10 +26,10 @@ void TimerView::buildUI()
     layout->setSpacing(12);
 
     // -- Mode group --
-    m_modeGroup = new QGroupBox(tr("Timer Mode"), this);
+    m_modeGroup = new QGroupBox(trMainWindow("Timer Mode"), this);
     QHBoxLayout* modeLayout = new QHBoxLayout(m_modeGroup);
-    m_radioCountdown = new QRadioButton(tr("Countdown"), m_modeGroup);
-    m_radioScheduled = new QRadioButton(tr("Scheduled Time"), m_modeGroup);
+    m_radioCountdown = new QRadioButton(trMainWindow("Countdown"), m_modeGroup);
+    m_radioScheduled = new QRadioButton(trMainWindow("Scheduled Time"), m_modeGroup);
     m_radioCountdown->setChecked(true);
     modeLayout->addWidget(m_radioCountdown);
     modeLayout->addWidget(m_radioScheduled);
@@ -71,10 +79,10 @@ void TimerView::buildUI()
     timeRow->addStretch();
     cdLayout->addLayout(timeRow);
 
-    m_preset15m = new QPushButton(tr("15 min"), countdownPage);
-    m_preset30m = new QPushButton(tr("30 min"), countdownPage);
-    m_preset1h  = new QPushButton(tr("1 hour"), countdownPage);
-    m_preset2h  = new QPushButton(tr("2 hours"), countdownPage);
+    m_preset15m = new QPushButton(trMainWindow("15 min"), countdownPage);
+    m_preset30m = new QPushButton(trMainWindow("30 min"), countdownPage);
+    m_preset1h  = new QPushButton(trMainWindow("1 hour"), countdownPage);
+    m_preset2h  = new QPushButton(trMainWindow("2 hours"), countdownPage);
 
     for (QPushButton* btn : {m_preset15m, m_preset30m, m_preset1h, m_preset2h}) {
         btn->setFixedHeight(28);
@@ -109,14 +117,14 @@ void TimerView::buildUI()
     layout->addWidget(m_inputStack);
 
     // -- Action group --
-    m_actionGroup = new QGroupBox(tr("Action"), this);
+    m_actionGroup = new QGroupBox(trMainWindow("Action"), this);
     QVBoxLayout* actionLayout = new QVBoxLayout(m_actionGroup);
     QHBoxLayout* actionRow    = new QHBoxLayout();
 
-    m_radioShutdown  = new QRadioButton(tr("Shutdown"),  m_actionGroup);
-    m_radioRestart   = new QRadioButton(tr("Restart"),   m_actionGroup);
-    m_radioHibernate = new QRadioButton(tr("Hibernate"), m_actionGroup);
-    m_radioSleep     = new QRadioButton(tr("Sleep"),     m_actionGroup);
+    m_radioShutdown  = new QRadioButton(trMainWindow("Shutdown"),  m_actionGroup);
+    m_radioRestart   = new QRadioButton(trMainWindow("Restart"),   m_actionGroup);
+    m_radioHibernate = new QRadioButton(trMainWindow("Hibernate"), m_actionGroup);
+    m_radioSleep     = new QRadioButton(trMainWindow("Sleep"),     m_actionGroup);
     m_radioShutdown->setChecked(true);
 
     actionRow->addWidget(m_radioShutdown);
@@ -129,8 +137,8 @@ void TimerView::buildUI()
         m_radioHibernate->setEnabled(false);
 #if defined(Q_OS_WIN)
         m_radioHibernate->setToolTip(
-            tr("Hibernate is not available on this machine.\n"
-               "It may be disabled via: powercfg /h on"));
+            trMainWindow("Hibernate is not available on this machine.\n"
+                         "It may be disabled via: powercfg /h on"));
 #elif defined(Q_OS_MACOS)
         m_radioHibernate->setToolTip(
             tr("Hibernate is not available on this machine.\n"
@@ -143,11 +151,11 @@ void TimerView::buildUI()
     }
     if (!m_sleepAvailable) {
         m_radioSleep->setEnabled(false);
-        m_radioSleep->setToolTip(tr("Sleep is not available on this machine."));
+        m_radioSleep->setToolTip(trMainWindow("Sleep is not available on this machine."));
     }
 
     m_forceCheck = new QCheckBox(
-        tr("Force (don't wait for apps to close)"), m_actionGroup);
+        trMainWindow("Force (don't wait for apps to close)"), m_actionGroup);
 #if defined(Q_OS_MACOS)
     m_forceCheck->setEnabled(false);
     m_forceCheck->setChecked(false);
@@ -174,8 +182,8 @@ void TimerView::buildUI()
 
     // -- Buttons --
     QHBoxLayout* btnLayout = new QHBoxLayout();
-    m_startBtn  = new QPushButton(tr("Start"), this);
-    m_cancelBtn = new QPushButton(tr("Cancel"), this);
+    m_startBtn  = new QPushButton(trMainWindow("Start"), this);
+    m_cancelBtn = new QPushButton(trMainWindow("Cancel"), this);
     m_startBtn->setFixedHeight(36);
     m_cancelBtn->setFixedHeight(36);
     m_cancelBtn->setEnabled(false);
@@ -333,26 +341,26 @@ QString TimerView::formatDuration(int seconds) const
 
 void TimerView::retranslate()
 {
-    if (m_modeGroup)      m_modeGroup->setTitle(tr("Timer Mode"));
-    if (m_radioCountdown) m_radioCountdown->setText(tr("Countdown"));
-    if (m_radioScheduled) m_radioScheduled->setText(tr("Scheduled Time"));
-    if (m_actionGroup)    m_actionGroup->setTitle(tr("Action"));
-    if (m_radioShutdown)  m_radioShutdown->setText(tr("Shutdown"));
-    if (m_radioRestart)   m_radioRestart->setText(tr("Restart"));
-    if (m_radioHibernate) m_radioHibernate->setText(tr("Hibernate"));
-    if (m_radioSleep)     m_radioSleep->setText(tr("Sleep"));
+    if (m_modeGroup)      m_modeGroup->setTitle(trMainWindow("Timer Mode"));
+    if (m_radioCountdown) m_radioCountdown->setText(trMainWindow("Countdown"));
+    if (m_radioScheduled) m_radioScheduled->setText(trMainWindow("Scheduled Time"));
+    if (m_actionGroup)    m_actionGroup->setTitle(trMainWindow("Action"));
+    if (m_radioShutdown)  m_radioShutdown->setText(trMainWindow("Shutdown"));
+    if (m_radioRestart)   m_radioRestart->setText(trMainWindow("Restart"));
+    if (m_radioHibernate) m_radioHibernate->setText(trMainWindow("Hibernate"));
+    if (m_radioSleep)     m_radioSleep->setText(trMainWindow("Sleep"));
     if (m_forceCheck)
-        m_forceCheck->setText(tr("Force (don't wait for apps to close)"));
+        m_forceCheck->setText(trMainWindow("Force (don't wait for apps to close)"));
 #if defined(Q_OS_MACOS)
     if (m_forceCheck)
         m_forceCheck->setToolTip(
             tr("Force shutdown/restart is not available for timed actions on macOS.\n"
                "macOS may ask for an administrator password when the timer expires."));
 #endif
-    if (m_startBtn)  m_startBtn->setText(tr("Start"));
-    if (m_cancelBtn) m_cancelBtn->setText(tr("Cancel"));
-    if (m_preset15m) m_preset15m->setText(tr("15 min"));
-    if (m_preset30m) m_preset30m->setText(tr("30 min"));
-    if (m_preset1h)  m_preset1h->setText(tr("1 hour"));
-    if (m_preset2h)  m_preset2h->setText(tr("2 hours"));
+    if (m_startBtn)  m_startBtn->setText(trMainWindow("Start"));
+    if (m_cancelBtn) m_cancelBtn->setText(trMainWindow("Cancel"));
+    if (m_preset15m) m_preset15m->setText(trMainWindow("15 min"));
+    if (m_preset30m) m_preset30m->setText(trMainWindow("30 min"));
+    if (m_preset1h)  m_preset1h->setText(trMainWindow("1 hour"));
+    if (m_preset2h)  m_preset2h->setText(trMainWindow("2 hours"));
 }

@@ -1,4 +1,12 @@
 #include "MessageController.h"
+#include <QCoreApplication>
+
+namespace {
+QString trMainWindow(const char* text)
+{
+    return QCoreApplication::translate("MainWindow", text);
+}
+}
 
 MessageController::MessageController(MessageModel*      model,
                                      IMessageBackend*   message,
@@ -23,11 +31,11 @@ bool MessageController::isPostLogin() const
 void MessageController::onSave(const QString& title, const QString& body, bool autoClear)
 {
     if (body.length() > 500) {
-        emit errorOccurred(tr("Message body must not exceed 500 characters."));
+        emit errorOccurred(trMainWindow("Message body must not exceed 500 characters."));
         return;
     }
     if (title.trimmed().isEmpty() && body.trimmed().isEmpty()) {
-        emit errorOccurred(tr("Please enter a title or message body before saving."));
+        emit errorOccurred(trMainWindow("Please enter a title or message body before saving."));
         return;
     }
 
@@ -36,7 +44,7 @@ void MessageController::onSave(const QString& title, const QString& body, bool a
     msg.body  = body.trimmed();
 
     if (!m_messageBk->write(msg)) {
-        emit errorOccurred(tr("Failed to save message:\n%1")
+        emit errorOccurred(trMainWindow("Failed to save message:\n%1")
                            .arg(m_messageBk->lastError()));
         return;
     }
@@ -46,21 +54,21 @@ void MessageController::onSave(const QString& title, const QString& body, bool a
 
     if (autoClear) {
         if (!m_autoClearBk->schedule()) {
-            emit messageSaved(tr("Message saved, but auto-clear task failed: %1")
+            emit messageSaved(trMainWindow("Message saved, but auto-clear task failed: %1")
                               .arg(m_autoClearBk->lastError()));
             return;
         }
-        emit messageSaved(tr("Message saved. Will auto-clear after next login."));
+        emit messageSaved(trMainWindow("Message saved. Will auto-clear after next login."));
     } else {
         m_autoClearBk->cancel();
-        emit messageSaved(tr("Message saved (persistent)."));
+        emit messageSaved(trMainWindow("Message saved (persistent)."));
     }
 }
 
 void MessageController::onClear()
 {
     if (!m_messageBk->clear()) {
-        emit errorOccurred(tr("Failed to clear message:\n%1")
+        emit errorOccurred(trMainWindow("Failed to clear message:\n%1")
                            .arg(m_messageBk->lastError()));
         return;
     }
@@ -72,14 +80,14 @@ void MessageController::onClear()
     m_model->setAutoClear(true);
 
     emit messageCleared();
-    emit statusMessage(tr("Startup message cleared."));
+    emit statusMessage(trMainWindow("Startup message cleared."));
 }
 
 void MessageController::onLoad()
 {
     StartupMessage msg;
     if (!m_messageBk->read(msg)) {
-        emit errorOccurred(tr("Failed to read message:\n%1")
+        emit errorOccurred(trMainWindow("Failed to read message:\n%1")
                            .arg(m_messageBk->lastError()));
         return;
     }
@@ -91,7 +99,7 @@ void MessageController::onLoad()
     emit messageLoaded(msg.title, msg.body, autoClearActive);
 
     if (msg.title.isEmpty() && msg.body.isEmpty())
-        emit statusMessage(tr("No startup message currently set."));
+        emit statusMessage(trMainWindow("No startup message currently set."));
     else
-        emit statusMessage(tr("Loaded current startup message."));
+        emit statusMessage(trMainWindow("Loaded current startup message."));
 }

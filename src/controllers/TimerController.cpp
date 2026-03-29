@@ -1,5 +1,13 @@
 #include "TimerController.h"
+#include <QCoreApplication>
 #include <QDateTime>
+
+namespace {
+QString trMainWindow(const char* text)
+{
+    return QCoreApplication::translate("MainWindow", text);
+}
+}
 
 TimerController::TimerController(TimerModel*       model,
                                  IShutdownBackend* shutdown,
@@ -28,7 +36,7 @@ void TimerController::onStartCountdown(int totalSeconds,
                                        bool force)
 {
     if (totalSeconds <= 0) {
-        emit errorOccurred(tr("\nPlease set a time greater than zero."));
+        emit errorOccurred(trMainWindow("\nPlease set a time greater than zero."));
         return;
     }
 
@@ -57,7 +65,7 @@ void TimerController::onStartCountdown(int totalSeconds,
         }
         emit statusMessage(tr("Timer registered with system. App can be closed."));
     } else {
-        emit statusMessage(tr("Timer started."));
+        emit statusMessage(trMainWindow("Timer started."));
     }
 
     m_engine->startCountdown(totalSeconds);
@@ -90,7 +98,7 @@ void TimerController::onStartScheduled(const QDateTime& target,
         }
         emit statusMessage(tr("Timer registered with system. App can be closed."));
     } else {
-        emit statusMessage(tr("Timer started."));
+        emit statusMessage(trMainWindow("Timer started."));
     }
 
     m_engine->startScheduled(target);
@@ -107,7 +115,7 @@ void TimerController::onCancel()
 
     emit timerCancelled();
     emit runningStateChanged(false);
-    emit statusMessage(tr("Cancelled."));
+    emit statusMessage(trMainWindow("Cancelled."));
 }
 
 void TimerController::onEngineTick(int remaining)
@@ -132,10 +140,10 @@ void TimerController::onEngineTriggered()
     if (ok) {
         QString msg;
         switch (action) {
-            case ShutdownAction::Shutdown:  msg = tr("Shutting down...");  break;
-            case ShutdownAction::Restart:   msg = tr("Restarting...");     break;
-            case ShutdownAction::Hibernate: msg = tr("Hibernating...");    break;
-            case ShutdownAction::Sleep:     msg = tr("Sleeping...");       break;
+            case ShutdownAction::Shutdown:  msg = trMainWindow("Shutting down...");  break;
+            case ShutdownAction::Restart:   msg = trMainWindow("Restarting...");     break;
+            case ShutdownAction::Hibernate: msg = trMainWindow("Hibernating...");    break;
+            case ShutdownAction::Sleep:     msg = trMainWindow("Sleeping...");       break;
         }
         emit statusMessage(msg);
     }
@@ -148,7 +156,7 @@ void TimerController::onEngineInvalidTarget()
 {
     m_model->setRunning(false);
     emit errorOccurred(
-        tr("The scheduled time is in the past. Please choose a future time."));
+        trMainWindow("The scheduled time is in the past. Please choose a future time."));
     emit timerCancelled();
     emit runningStateChanged(false);
 }
